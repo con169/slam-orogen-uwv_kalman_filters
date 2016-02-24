@@ -1,0 +1,81 @@
+name "uwv_filters"
+version "0.1"
+
+using_library "uwv_filters"
+
+import_types_from "base"
+import_types_from "uwv_dynamic_model/uwv_dataTypes.hpp"
+import_types_from "uwv_filtersTypes.hpp"
+
+
+task_context "VelocityProvider" do
+    needs_configuration
+
+    #******************************
+    #***** Filter Properties ******
+    #******************************
+    # max time delta between to successive measurements in seconds
+    property( "max_time_delta", "double", 2.0 )
+
+    # Filter process noise, NaN values will be ignored and set to a healthy but likely overconfident value.
+    property( "process_noise", "/uwv_filters/VelocityProcessNoise" )
+
+    # Covariance matrix of the acceleration measurements
+    property( "cov_acceleration", "/base/Matrix3d" )
+
+    # Covariance matrix of the angular velocity measurements
+    property( "cov_angular_velocity", "/base/Matrix3d" )
+
+    # Parameters of the motion model.
+    property("model_parameters", "underwaterVehicle/Parameters")
+
+    # Since the pose is unknown target and source frame will be the same
+    property( 'target_frame', '/std/string', 'body' )
+
+
+    #******************************
+    #******* Input Ports **********
+    #******************************
+
+    # Thrusters' commands
+    input_port("joint_samples", "/base/samples/Joints").
+        needs_reliable_connection
+
+    # Velocity samples from a DVL, containing the velocity.
+    input_port( "dvl_velocity_samples", "/base/samples/RigidBodyState" ).
+	    needs_reliable_connection
+
+    # IMU acceleration and angular velocities samples
+    input_port('imu_sensor_samples', '/base/samples/IMUSensors').
+	    needs_reliable_connection
+
+
+    #******************************
+    #******* Output Ports *********
+    #******************************
+
+    # timestamped samples of the current estimated velocity of the robot
+    output_port( "velocity_samples", "/base/samples/RigidBodyState" )
+
+
+    #******************************
+    #** Aggregator Parameters ***** 
+    #******************************
+    transformer do
+        transformation("imu", "body")
+        transformation("dvl", "body")
+            
+        align_port("joint_samples", 0.01)
+        align_port("dvl_velocity_samples", 0.2)
+        align_port("imu_sensor_samples", 0.01)
+        max_latency(0.05)
+    end
+
+    #******************************
+    #******** Task States *********
+    #******************************
+    runtime_states :MISSING_TRANSFORMATION, :TRANSFORMATION_ALIGNMENT_FAILURES
+
+    periodic 0.005
+end
+
