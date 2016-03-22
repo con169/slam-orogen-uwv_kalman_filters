@@ -68,20 +68,23 @@ void VelocityProvider::imu_sensor_samplesTransformerCallback(const base::Time &t
         return;
     }
 
-    if(base::isnotnan(imu_sensor_samples_sample.acc))
+    if(_use_acceleration_samples.value())
     {
-        // enqueue new acceleration measurement
-        pose_estimation::Measurement acc_measurement;
-        acc_measurement.time = ts;
-        acc_measurement.integration = pose_estimation::UserDefined;
-        acc_measurement.measurement_name = VelocityUKF::acceleration_measurement;
-        acc_measurement.mu = imuInBody.rotation() * imu_sensor_samples_sample.acc;
-        acc_measurement.cov = _cov_acceleration.value();
-        if(!pose_estimator->enqueueMeasurement(acc_measurement))
-            RTT::log(RTT::Error) << "Failed to add acceleration measurement." << RTT::endlog();
+        if(base::isnotnan(imu_sensor_samples_sample.acc))
+        {
+            // enqueue new acceleration measurement
+            pose_estimation::Measurement acc_measurement;
+            acc_measurement.time = ts;
+            acc_measurement.integration = pose_estimation::UserDefined;
+            acc_measurement.measurement_name = VelocityUKF::acceleration_measurement;
+            acc_measurement.mu = imuInBody.rotation() * imu_sensor_samples_sample.acc;
+            acc_measurement.cov = _cov_acceleration.value();
+            if(!pose_estimator->enqueueMeasurement(acc_measurement))
+                RTT::log(RTT::Error) << "Failed to add acceleration measurement." << RTT::endlog();
+        }
+        else
+            RTT::log(RTT::Error) << "Acceleration measurement contains NaN's, it will be skipped!" << RTT::endlog();
     }
-    else
-        RTT::log(RTT::Error) << "Acceleration measurement contains NaN's, it will be skipped!" << RTT::endlog();
 
     if(base::isnotnan(imu_sensor_samples_sample.gyro))
     {

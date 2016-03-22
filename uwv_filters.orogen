@@ -14,6 +14,11 @@ task_context "VelocityProvider" do
     #******************************
     #***** Filter Properties ******
     #******************************
+    # Integrate acceleration samples if joint states are not available.
+    # Note: Since this component doesn't estimate the orientation, the acceleration samples
+    #       need to be freed from gravitational and rotational influences.
+    property( "use_acceleration_samples", "bool", false )
+
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
 
