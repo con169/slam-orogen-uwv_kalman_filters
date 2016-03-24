@@ -16,5 +16,5 @@
   -->
   <depend package="slam/uwv_filters" />
 
-  <tags>needs_opt</tags>
+  <tags>stable</tags>
 </package>
