@@ -142,7 +142,11 @@ bool VelocityProvider::configureHook()
     boost::shared_ptr<VelocityUKF> filter(new VelocityUKF(init_state));
 
     // set model parameters
-    filter->setupMotionModel(_model_parameters.value());
+    if (!filter->setupMotionModel(_model_parameters.value()))
+    {
+        RTT::log(RTT::Error) << "Failed to setup motion model!" << RTT::endlog();
+        return false;
+    }
 
     pose_estimator.reset(new pose_estimation::PoseEstimator(filter));
 
