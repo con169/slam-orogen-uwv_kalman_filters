@@ -170,6 +170,9 @@ bool VelocityProvider::configureHook()
     streams_with_alignment_failures = 0;
 
     current_angular_velocity = Eigen::Vector3d::Zero();
+    
+    last_state = PRE_OPERATIONAL;
+    new_state = RUNNING;
 
     return true;
 }
@@ -181,6 +184,7 @@ bool VelocityProvider::startHook()
 }
 void VelocityProvider::updateHook()
 {
+    new_state = RUNNING;
     VelocityProviderBase::updateHook();
 
     // integrate measurements
