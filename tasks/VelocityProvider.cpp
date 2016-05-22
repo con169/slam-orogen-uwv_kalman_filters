@@ -34,10 +34,9 @@ void VelocityProvider::dvl_velocity_samplesTransformerCallback(const base::Time 
     if(dvl_velocity_samples_sample.hasValidVelocity() && dvl_velocity_samples_sample.hasValidVelocityCovariance())
     {
         base::Vector3d velocity = dvlInBody.rotation() * dvl_velocity_samples_sample.velocity;
-        if(base::isnotnan(current_angular_velocity) && !current_angular_velocity.isZero())
+        if(base::isnotnan(current_angular_velocity))
         {
-            base::Vector3d euler_angle_velocity = base::getEuler(base::Orientation(Eigen::AngleAxisd(current_angular_velocity.norm(), current_angular_velocity.normalized())));
-            velocity -= Eigen::Vector3d(euler_angle_velocity.z(), euler_angle_velocity.y(), euler_angle_velocity.x()).cross(dvlInBody.translation());
+            velocity -= current_angular_velocity.cross(dvlInBody.translation());
         }
 
         // add velocity measurement
@@ -208,9 +207,7 @@ void VelocityProvider::updateHook()
     {
         base::samples::RigidBodyState velocity_sample;
         velocity_sample.velocity = current_state.mu.block(0,0,3,1);
-        Eigen::Vector3d angular_velocity;
-        EulerConversion::eulerAngleVelocityToAngleAxis(current_state.mu.block(3,0,3,1), angular_velocity);
-        velocity_sample.angular_velocity = angular_velocity;
+        velocity_sample.angular_velocity = current_state.mu.block(3,0,3,1);
         velocity_sample.cov_velocity = current_state.cov.block(0,0,3,3);
         velocity_sample.cov_angular_velocity = current_state.cov.block(3,3,3,3);
         velocity_sample.time = pose_estimator->getLastMeasurementTime();
