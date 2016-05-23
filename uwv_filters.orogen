@@ -81,6 +81,6 @@ task_context "VelocityProvider" do
     #******************************
     runtime_states :MISSING_TRANSFORMATION, :TRANSFORMATION_ALIGNMENT_FAILURES
 
-    periodic 0.005
+    port_driven
 end
 
