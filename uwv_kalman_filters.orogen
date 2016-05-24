@@ -1,11 +1,11 @@
-name "uwv_filters"
+name "uwv_kalman_filters"
 version "0.1"
 
-using_library "uwv_filters"
+using_library "uwv_kalman_filters"
 
 import_types_from "base"
 import_types_from "uwv_dynamic_model/uwv_dataTypes.hpp"
-import_types_from "uwv_filtersTypes.hpp"
+import_types_from "uwv_kalman_filtersTypes.hpp"
 
 
 task_context "VelocityProvider" do
@@ -23,7 +23,7 @@ task_context "VelocityProvider" do
     property( "max_time_delta", "double", 2.0 )
 
     # Filter process noise, NaN values will be ignored and set to a healthy but likely overconfident value.
-    property( "process_noise", "/uwv_filters/VelocityProcessNoise" )
+    property( "process_noise", "/uwv_kalman_filters/VelocityProcessNoise" )
 
     # Covariance matrix of the acceleration measurements
     property( "cov_acceleration", "/base/Matrix3d" )

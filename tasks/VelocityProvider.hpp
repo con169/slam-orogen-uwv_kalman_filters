@@ -1,16 +1,16 @@
 /* Generated from orogen/lib/orogen/templates/tasks/Task.hpp */
 
-#ifndef UWV_FILTERS_VELOCITYPROVIDER_TASK_HPP
-#define UWV_FILTERS_VELOCITYPROVIDER_TASK_HPP
+#ifndef UWV_KALMAN_FILTERS_VELOCITYPROVIDER_TASK_HPP
+#define UWV_KALMAN_FILTERS_VELOCITYPROVIDER_TASK_HPP
 
-#include "uwv_filters/VelocityProviderBase.hpp"
+#include "uwv_kalman_filters/VelocityProviderBase.hpp"
 #include <boost/shared_ptr.hpp>
 #include <pose_estimation/PoseEstimator.hpp>
 #include <pose_estimation/Measurement.hpp>
 #include <pose_estimation/StreamAlignmentVerifier.hpp>
-#include <uwv_filters/uwv_filtersTypes.hpp>
+#include <uwv_kalman_filters/uwv_kalman_filtersTypes.hpp>
 
-namespace uwv_filters {
+namespace uwv_kalman_filters {
 
     /*! \class VelocityProvider 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -21,7 +21,7 @@ namespace uwv_filters {
      * The name of a TaskContext is primarily defined via:
      \verbatim
      deployment 'deployment_name'
-         task('custom_task_name','uwv_filters::VelocityProvider')
+         task('custom_task_name','uwv_kalman_filters::VelocityProvider')
      end
      \endverbatim
      *  It can be dynamically adapted when the deployment is called with a prefix argument. 
@@ -49,7 +49,7 @@ namespace uwv_filters {
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        VelocityProvider(std::string const& name = "uwv_filters::VelocityProvider");
+        VelocityProvider(std::string const& name = "uwv_kalman_filters::VelocityProvider");
 
         /** TaskContext constructor for VelocityProvider 
          * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices. 

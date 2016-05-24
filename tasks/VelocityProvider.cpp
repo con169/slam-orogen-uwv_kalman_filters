@@ -1,10 +1,10 @@
 /* Generated from orogen/lib/orogen/templates/tasks/Task.cpp */
 
 #include "VelocityProvider.hpp"
-#include <uwv_filters/VelocityUKF.hpp>
+#include <uwv_kalman_filters/VelocityUKF.hpp>
 #include <pose_estimation/EulerConversion.hpp>
 
-using namespace uwv_filters;
+using namespace uwv_kalman_filters;
 
 VelocityProvider::VelocityProvider(std::string const& name)
     : VelocityProviderBase(name)

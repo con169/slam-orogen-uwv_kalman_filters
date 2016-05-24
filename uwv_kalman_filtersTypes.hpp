@@ -1,11 +1,11 @@
-#ifndef uwv_filters_TYPES_HPP
-#define uwv_filters_TYPES_HPP
+#ifndef uwv_kalman_filters_TYPES_HPP
+#define uwv_kalman_filters_TYPES_HPP
 
 #include <vector>
 #include <base/Eigen.hpp>
 #include <base/Float.hpp>
 
-namespace uwv_filters
+namespace uwv_kalman_filters
 {
 
 struct VelocityProcessNoise
