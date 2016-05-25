@@ -102,23 +102,22 @@ void VelocityProvider::imu_sensor_samplesTransformerCallback(const base::Time &t
         RTT::log(RTT::Error) << "Angular velocity measurement contains NaN's, it will be skipped!" << RTT::endlog();
 }
 
-void VelocityProvider::joint_samplesTransformerCallback(const base::Time &ts, const ::base::samples::Joints &joint_samples_sample)
+void VelocityProvider::body_effortsTransformerCallback(const base::Time &ts, const ::base::LinearAngular6DCommand &body_efforts_sample)
 {
+    if(!base::isnotnan(body_efforts_sample.linear) || !base::isnotnan(body_efforts_sample.angular))
+    {
+        RTT::log(RTT::Error) << "Body effort measurements contain NaN values! Measurement will be skipped." << RTT::endlog();
+        return;
+    }
+    
     pose_estimation::Measurement measurement;
     measurement.time = ts;
-    measurement.measurement_name = VelocityUKF::thruster_rpm_measurement;
+    measurement.measurement_name = VelocityUKF::body_efforts_measurement;
     measurement.integration = pose_estimation::UserDefined;
-    measurement.mu.resize(joint_samples_sample.elements.size());
-    for(unsigned i = 0; i < joint_samples_sample.elements.size(); i++)
-    {
-        if(!base::isNaN(joint_samples_sample.elements[i].speed))
-            measurement.mu(i) = (double)joint_samples_sample.elements[i].speed;
-        else
-        {
-            RTT::log(RTT::Error) << "Thruster speed measurements contain NaN values! Measurement will be skipped." << RTT::endlog();
-            return;
-        }
-    }
+    measurement.mu.resize(6);
+    measurement.mu.block(0,0,3,1) = body_efforts_sample.linear;
+    measurement.mu.block(3,0,3,1) = body_efforts_sample.angular;
+
     // enqueue new measurement
     if(!pose_estimator->enqueueMeasurement(measurement))
         RTT::log(RTT::Error) << "Failed to add thruster speed measurements." << RTT::endlog();
