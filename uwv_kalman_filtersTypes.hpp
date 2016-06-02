@@ -11,8 +11,10 @@ namespace uwv_kalman_filters
 struct VelocityProcessNoise
 {
     base::Matrix3d velocity_noise;
+    double depth_noise;
 
-    VelocityProcessNoise() : velocity_noise(base::Matrix3d::Constant(base::unknown<double>())) {}
+    VelocityProcessNoise() : velocity_noise(base::Matrix3d::Constant(base::unknown<double>())),
+                             depth_noise(base::unknown<double>()) {}
 };
 
 }

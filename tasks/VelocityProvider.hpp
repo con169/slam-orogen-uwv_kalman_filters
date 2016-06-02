@@ -44,6 +44,8 @@ namespace uwv_kalman_filters {
 
         virtual void joint_samplesTransformerCallback(const base::Time &ts, const ::base::samples::Joints &joint_samples_sample);
 
+        virtual void pressure_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_samples_sample);
+
     public:
         /** TaskContext constructor for VelocityProvider
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.

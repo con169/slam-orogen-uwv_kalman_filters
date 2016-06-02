@@ -54,6 +54,10 @@ task_context "VelocityProvider" do
     input_port('imu_sensor_samples', '/base/samples/IMUSensors').
 	    needs_reliable_connection
 
+    # Pressure sensor samples
+    input_port('pressure_sensor_samples', '/base/samples/RigidBodyState').
+            needs_reliable_connection
+
 
     #******************************
     #******* Output Ports *********
@@ -69,10 +73,12 @@ task_context "VelocityProvider" do
     transformer do
         transformation("imu", "body")
         transformation("dvl", "body")
+        transformation("pressure_sensor", "body")
             
         align_port("joint_samples", 0.01)
         align_port("dvl_velocity_samples", 0.2)
         align_port("imu_sensor_samples", 0.01)
+        align_port("pressure_sensor_samples", 0.01)
         max_latency(0.05)
     end
 

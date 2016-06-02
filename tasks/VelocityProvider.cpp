@@ -124,6 +124,38 @@ void VelocityProvider::joint_samplesTransformerCallback(const base::Time &ts, co
         RTT::log(RTT::Error) << "Failed to add thruster speed measurements." << RTT::endlog();
 }
 
+void VelocityProvider::pressure_sensor_samplesTransformerCallback(const base::Time& ts, const base::samples::RigidBodyState& pressure_samples_sample)
+{
+    // receive sensor to body transformation
+    Eigen::Affine3d pressureSensorInBody;
+    if (!_dvl2body.get(ts, pressureSensorInBody))
+    {
+        RTT::log(RTT::Error) << "skip, couldn't receive a valid pressure-sensor-in-body transformation sample!" << RTT::endlog();
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+
+    if(!base::isNaN(pressure_samples_sample.position.z()) && !base::isNaN(pressure_samples_sample.cov_position(2,2)))
+    {
+        Eigen::Matrix<double, 1, 1> depth;
+        depth << pressure_samples_sample.position.z() - pressureSensorInBody.translation().z();
+
+        // add depth measurement
+        pose_estimation::Measurement measurement;
+        measurement.time = ts;
+        measurement.measurement_name = "depth_measurement";
+        measurement.integration = pose_estimation::StateMapping;
+        measurement.mu = depth;
+        measurement.cov = pressure_samples_sample.cov_position.block(2,2,1,1);
+        measurement.state_mapping.resize(1);
+        measurement.state_mapping(0) = 3;
+        if(!pose_estimator->enqueueMeasurement(measurement))
+            RTT::log(RTT::Error) << "Failed to add depth measurement." << RTT::endlog();
+    }
+    else
+        RTT::log(RTT::Error) << "Depth measurement contains NaN's, it will be skipped!" << RTT::endlog();
+}
+
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See VelocityProvider.hpp for more detailed
 // documentation about them.
@@ -136,8 +168,9 @@ bool VelocityProvider::configureHook()
     // setup initial state
     VelocityUKF::FilterState init_state;
     // linear velocity
-    init_state.mu = Eigen::Vector3d::Zero();
-    init_state.cov = 0.1 * base::Matrix3d::Identity();
+    init_state.mu = VelocityUKF::StateVector::Zero();
+    init_state.cov = 0.1 * VelocityUKF::Covariance::Identity();
+    init_state.cov(3,3) = 100.0;
     boost::shared_ptr<VelocityUKF> filter(new VelocityUKF(init_state));
 
     // set model parameters
@@ -157,6 +190,11 @@ bool VelocityProvider::configureHook()
         process_noise_cov.block(0,0,3,3) = process_noise.velocity_noise;
     else
         process_noise_cov.block(0,0,3,3) = 0.001 * base::Matrix3d::Identity();
+
+    if(!base::isNaN(process_noise.depth_noise))
+        process_noise_cov(3,3) = process_noise.depth_noise;
+    else
+        process_noise_cov(3,3) = 0.01;
 
     pose_estimator->setProcessNoise(process_noise_cov);
 
@@ -207,9 +245,11 @@ void VelocityProvider::updateHook()
     {
         base::samples::RigidBodyState velocity_sample;
         velocity_sample.velocity = current_state.mu.block(0,0,3,1);
-        velocity_sample.angular_velocity = current_state.mu.block(3,0,3,1);
+        velocity_sample.position.z() = current_state.mu(3,0);
+        velocity_sample.angular_velocity = current_state.mu.block(4,0,3,1);
         velocity_sample.cov_velocity = current_state.cov.block(0,0,3,3);
-        velocity_sample.cov_angular_velocity = current_state.cov.block(3,3,3,3);
+        velocity_sample.cov_position(2,2) = current_state.cov(3,3);
+        velocity_sample.cov_angular_velocity = current_state.cov.block(4,4,3,3);
         velocity_sample.time = pose_estimator->getLastMeasurementTime();
         velocity_sample.targetFrame = _target_frame.value();
         velocity_sample.sourceFrame = _target_frame.value();
