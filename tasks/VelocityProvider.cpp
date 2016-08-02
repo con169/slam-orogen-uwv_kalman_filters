@@ -202,9 +202,11 @@ bool VelocityProvider::configureHook()
 
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());
-    verifier->setVerificationInterval(2.0);
-    verifier->setDropRateThreshold(0.5);
+    verifier->setVerificationInterval(20.0);
+    verifier->setDropRateWarningThreshold(0.5);
+    verifier->setDropRateCriticalThreshold(1.0);
     streams_with_alignment_failures = 0;
+    streams_with_critical_alignment_failures = 0;
 
     current_angular_velocity = Eigen::Vector3d::Zero();
     
@@ -235,9 +237,11 @@ void VelocityProvider::updateHook()
     }
 
     // check stream alignment status
-    verifier->verifyStreamAlignerStatus(_transformer.getStreamAlignerStatus(), streams_with_alignment_failures);
+    verifier->verifyStreamAlignerStatus(_transformer.getStreamAlignerStatus(), streams_with_alignment_failures, streams_with_critical_alignment_failures);
     if(streams_with_alignment_failures > 0)
         new_state = TRANSFORMATION_ALIGNMENT_FAILURES;
+    if(streams_with_critical_alignment_failures > 0)
+	error(CRITICAL_ALIGNMENT_FAILURE);
 
     // write estimated body state
     VelocityUKF::FilterState current_state;

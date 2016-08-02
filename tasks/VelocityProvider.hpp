@@ -33,6 +33,7 @@ namespace uwv_kalman_filters {
         boost::shared_ptr<pose_estimation::PoseEstimator> pose_estimator;
         boost::shared_ptr<pose_estimation::StreamAlignmentVerifier> verifier;
         unsigned streams_with_alignment_failures;
+	unsigned streams_with_critical_alignment_failures;
         Eigen::Vector3d current_angular_velocity;
         States last_state;
         States new_state;
