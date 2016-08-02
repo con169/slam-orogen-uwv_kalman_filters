@@ -128,7 +128,7 @@ void VelocityProvider::pressure_sensor_samplesTransformerCallback(const base::Ti
 {
     // receive sensor to body transformation
     Eigen::Affine3d pressureSensorInBody;
-    if (!_dvl2body.get(ts, pressureSensorInBody))
+    if (!_pressure_sensor2body.get(ts, pressureSensorInBody))
     {
         RTT::log(RTT::Error) << "skip, couldn't receive a valid pressure-sensor-in-body transformation sample!" << RTT::endlog();
         new_state = MISSING_TRANSFORMATION;
