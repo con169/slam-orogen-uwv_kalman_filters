@@ -5,7 +5,7 @@ using_library "uwv_kalman_filters"
 
 import_types_from "base"
 import_types_from "auv_control"
-import_types_from "uwv_dynamic_model/DataTypes.hpp"
+import_types_from "uwv_dynamic_model"
 import_types_from "uwv_kalman_filtersTypes.hpp"
 
 
