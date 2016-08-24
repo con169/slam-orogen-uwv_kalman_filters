@@ -15,19 +15,11 @@ task_context "VelocityProvider" do
     #******************************
     #***** Filter Properties ******
     #******************************
-    # Integrate acceleration samples if joint states are not available.
-    # Note: Since this component doesn't estimate the orientation, the acceleration samples
-    #       need to be freed from gravitational and rotational influences.
-    property( "use_acceleration_samples", "bool", false )
-
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
 
     # Filter process noise, NaN values will be ignored and set to a healthy but likely overconfident value.
     property( "process_noise", "/uwv_kalman_filters/VelocityProcessNoise" )
-
-    # Covariance matrix of the acceleration measurements
-    property( "cov_acceleration", "/base/Matrix3d" )
 
     # Covariance matrix of the angular velocity measurements
     property( "cov_angular_velocity", "/base/Matrix3d" )
