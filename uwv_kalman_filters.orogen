@@ -4,7 +4,8 @@ version "0.1"
 using_library "uwv_kalman_filters"
 
 import_types_from "base"
-import_types_from "uwv_dynamic_model/uwv_dataTypes.hpp"
+import_types_from "auv_control"
+import_types_from "uwv_dynamic_model"
 import_types_from "uwv_kalman_filtersTypes.hpp"
 
 
@@ -32,7 +33,7 @@ task_context "VelocityProvider" do
     property( "cov_angular_velocity", "/base/Matrix3d" )
 
     # Parameters of the motion model.
-    property("model_parameters", "underwaterVehicle/Parameters")
+    property("model_parameters", "uwv_dynamic_model/UWVParameters")
 
     # Since the pose is unknown target and source frame will be the same
     property( 'target_frame', '/std/string', 'body' )
@@ -43,7 +44,7 @@ task_context "VelocityProvider" do
     #******************************
 
     # Thrusters' commands
-    input_port("joint_samples", "/base/samples/Joints").
+    input_port("body_efforts", "base::LinearAngular6DCommand").
         needs_reliable_connection
 
     # Velocity samples from a DVL, containing the velocity.
@@ -75,7 +76,7 @@ task_context "VelocityProvider" do
         transformation("dvl", "body")
         transformation("pressure_sensor", "body")
             
-        align_port("joint_samples", 0.01)
+        align_port("body_efforts", 0.01)
         align_port("dvl_velocity_samples", 0.2)
         align_port("imu_sensor_samples", 0.01)
         align_port("pressure_sensor_samples", 0.01)
