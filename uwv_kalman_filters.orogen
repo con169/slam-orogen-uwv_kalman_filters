@@ -33,7 +33,7 @@ task_context "VelocityProvider" do
     property( "cov_angular_velocity", "/base/Matrix3d" )
 
     # Parameters of the motion model.
-    property("model_parameters", "uwv_dynamic_model/UWVParameters")
+    property( "model_parameters", "uwv_dynamic_model/UWVParameters" )
 
     # Since the pose is unknown target and source frame will be the same
     property( 'target_frame', '/std/string', 'body' )

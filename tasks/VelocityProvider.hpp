@@ -5,13 +5,13 @@
 
 #include "uwv_kalman_filters/VelocityProviderBase.hpp"
 #include <boost/shared_ptr.hpp>
-#include <pose_estimation/PoseEstimator.hpp>
-#include <pose_estimation/Measurement.hpp>
 #include <pose_estimation/StreamAlignmentVerifier.hpp>
 #include <uwv_kalman_filters/uwv_kalman_filtersTypes.hpp>
 #include <auv_control/6dControl.hpp>
 
 namespace uwv_kalman_filters {
+
+    class VelocityUKF;
 
     /*! \class VelocityProvider 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -31,7 +31,7 @@ namespace uwv_kalman_filters {
     {
 	friend class VelocityProviderBase;
     protected:
-        boost::shared_ptr<pose_estimation::PoseEstimator> pose_estimator;
+        boost::shared_ptr<uwv_kalman_filters::VelocityUKF> velocity_filter;
         boost::shared_ptr<pose_estimation::StreamAlignmentVerifier> verifier;
         unsigned streams_with_alignment_failures;
 	unsigned streams_with_critical_alignment_failures;
@@ -47,6 +47,8 @@ namespace uwv_kalman_filters {
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::LinearAngular6DCommand &body_efforts);
 
         virtual void pressure_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_samples_sample);
+
+        void predictionStep(const base::Time& sample_time);
 
     public:
         /** TaskContext constructor for VelocityProvider

@@ -2,7 +2,6 @@
 
 #include "VelocityProvider.hpp"
 #include <uwv_kalman_filters/VelocityUKF.hpp>
-#include <pose_estimation/EulerConversion.hpp>
 
 using namespace uwv_kalman_filters;
 
@@ -39,21 +38,23 @@ void VelocityProvider::dvl_velocity_samplesTransformerCallback(const base::Time 
             velocity -= current_angular_velocity.cross(dvlInBody.translation());
         }
 
-        // add velocity measurement
-        pose_estimation::Measurement measurement;
-        measurement.time = ts;
-        measurement.measurement_name = "dvl_measurement";
-        measurement.integration = pose_estimation::StateMapping;
+        // apply new velocity measurement
+        VelocityUKF::DVLMeasurement measurement;
         measurement.mu = velocity;
         measurement.cov = dvlInBody.rotation() * dvl_velocity_samples_sample.cov_velocity * dvlInBody.rotation().transpose();
-        measurement.state_mapping.resize(3);
-        for(unsigned i = 0; i < 3; i++)
-            measurement.state_mapping(i) = i;
-        if(!pose_estimator->enqueueMeasurement(measurement))
-            RTT::log(RTT::Error) << "Failed to add DVL measurement." << RTT::endlog();
+
+        predictionStep(ts);
+        try
+        {
+            velocity_filter->integrateMeasurement(measurement);
+        }
+        catch(const std::runtime_error& e)
+        {
+            RTT::log(RTT::Error) << "Failed to add DVL measurement: " << e.what() << RTT::endlog();
+        }
     }
     else
-        RTT::log(RTT::Error) << "DVL measurement contains NaN's, it will be skipped!" << RTT::endlog();
+        RTT::log(RTT::Info) << "DVL measurement contains NaN's, it will be skipped!" << RTT::endlog();
 }
 
 void VelocityProvider::imu_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &imu_sensor_samples_sample)
@@ -67,36 +68,23 @@ void VelocityProvider::imu_sensor_samplesTransformerCallback(const base::Time &t
         return;
     }
 
-    if(_use_acceleration_samples.value())
-    {
-        if(base::isnotnan(imu_sensor_samples_sample.acc))
-        {
-            // enqueue new acceleration measurement
-            pose_estimation::Measurement acc_measurement;
-            acc_measurement.time = ts;
-            acc_measurement.integration = pose_estimation::UserDefined;
-            acc_measurement.measurement_name = VelocityUKF::acceleration_measurement;
-            acc_measurement.mu = imuInBody.rotation() * imu_sensor_samples_sample.acc;
-            acc_measurement.cov = _cov_acceleration.value();
-            if(!pose_estimator->enqueueMeasurement(acc_measurement))
-                RTT::log(RTT::Error) << "Failed to add acceleration measurement." << RTT::endlog();
-        }
-        else
-            RTT::log(RTT::Error) << "Acceleration measurement contains NaN's, it will be skipped!" << RTT::endlog();
-    }
-
     if(base::isnotnan(imu_sensor_samples_sample.gyro))
     {
-        // enqueue new gyro measurement
-        pose_estimation::Measurement gyro_measurement;
-        gyro_measurement.time = ts;
-        gyro_measurement.integration = pose_estimation::UserDefined;
-        gyro_measurement.measurement_name = VelocityUKF::angular_velocity_measurement;
+        // apply new gyro measurement
+        VelocityUKF::GyroMeasurement measurement;
         current_angular_velocity = imuInBody.rotation() * imu_sensor_samples_sample.gyro;
-        gyro_measurement.mu = current_angular_velocity;
-        gyro_measurement.cov = _cov_angular_velocity.value();
-        if(!pose_estimator->enqueueMeasurement(gyro_measurement))
-            RTT::log(RTT::Error) << "Failed to add angular velocity measurement." << RTT::endlog();
+        measurement.mu = current_angular_velocity;
+        measurement.cov = _cov_angular_velocity.value();
+
+        predictionStep(ts);
+        try
+        {
+            velocity_filter->integrateMeasurement(measurement);
+        }
+        catch(const std::runtime_error& e)
+        {
+            RTT::log(RTT::Error) << "Failed to add angular velocity measurement: " << e.what() << RTT::endlog();
+        }
     }
     else
         RTT::log(RTT::Error) << "Angular velocity measurement contains NaN's, it will be skipped!" << RTT::endlog();
@@ -110,17 +98,21 @@ void VelocityProvider::body_effortsTransformerCallback(const base::Time &ts, con
         return;
     }
     
-    pose_estimation::Measurement measurement;
-    measurement.time = ts;
-    measurement.measurement_name = VelocityUKF::body_efforts_measurement;
-    measurement.integration = pose_estimation::UserDefined;
+    VelocityUKF::BodyEffortsMeasurement measurement;
     measurement.mu.resize(6);
     measurement.mu.block(0,0,3,1) = body_efforts_sample.linear;
     measurement.mu.block(3,0,3,1) = body_efforts_sample.angular;
 
-    // enqueue new measurement
-    if(!pose_estimator->enqueueMeasurement(measurement))
-        RTT::log(RTT::Error) << "Failed to add thruster speed measurements." << RTT::endlog();
+    predictionStep(ts);
+    // apply body efforts measurement
+    try
+    {
+        velocity_filter->integrateMeasurement(measurement);
+    }
+    catch(const std::runtime_error& e)
+    {
+        RTT::log(RTT::Error) << "Failed to add thruster speed measurements: " << e.what() << RTT::endlog();
+    }
 }
 
 void VelocityProvider::pressure_sensor_samplesTransformerCallback(const base::Time& ts, const base::samples::RigidBodyState& pressure_samples_sample)
@@ -139,20 +131,36 @@ void VelocityProvider::pressure_sensor_samplesTransformerCallback(const base::Ti
         Eigen::Matrix<double, 1, 1> depth;
         depth << pressure_samples_sample.position.z() - pressureSensorInBody.translation().z();
 
-        // add depth measurement
-        pose_estimation::Measurement measurement;
-        measurement.time = ts;
-        measurement.measurement_name = "depth_measurement";
-        measurement.integration = pose_estimation::StateMapping;
+        // apply depth measurement
+        VelocityUKF::PressureMeasurement measurement;
         measurement.mu = depth;
         measurement.cov = pressure_samples_sample.cov_position.block(2,2,1,1);
-        measurement.state_mapping.resize(1);
-        measurement.state_mapping(0) = 3;
-        if(!pose_estimator->enqueueMeasurement(measurement))
-            RTT::log(RTT::Error) << "Failed to add depth measurement." << RTT::endlog();
+
+        predictionStep(ts);
+        try
+        {
+            velocity_filter->integrateMeasurement(measurement);
+        }
+        catch(const std::runtime_error& e)
+        {
+            RTT::log(RTT::Error) << "Failed to add depth measurement: " << e.what() << RTT::endlog();
+        }
     }
     else
         RTT::log(RTT::Error) << "Depth measurement contains NaN's, it will be skipped!" << RTT::endlog();
+}
+
+void VelocityProvider::predictionStep(const base::Time& sample_time)
+{
+    try
+    {
+        velocity_filter->predictionStepFromSampleTime(sample_time);
+    }
+    catch(const std::runtime_error& e)
+    {
+        RTT::log(RTT::Error) << "Failed to execute prediction step: " << e.what() << RTT::endlog();
+        RTT::log(RTT::Error) << "Skipping prediction step." << RTT::endlog();
+    }
 }
 
 /// The following lines are template definitions for the various state machine
@@ -165,21 +173,21 @@ bool VelocityProvider::configureHook()
         return false;
 
     // setup initial state
-    VelocityUKF::FilterState init_state;
+    VelocityUKF::State init_state;
+    VelocityUKF::Covariance state_cov;
     // linear velocity
-    init_state.mu = VelocityUKF::StateVector::Zero();
-    init_state.cov = 0.1 * VelocityUKF::Covariance::Identity();
-    init_state.cov(3,3) = 100.0;
-    boost::shared_ptr<VelocityUKF> filter(new VelocityUKF(init_state));
+    init_state.velocity = VelocityType::Zero();
+    init_state.z_position = ZPosType::Zero();
+    state_cov = 0.1 * VelocityUKF::Covariance::Identity();
+    state_cov(3,3) = 100.0;
+    velocity_filter.reset(new VelocityUKF(init_state, state_cov));
 
     // set model parameters
-    if (!filter->setupMotionModel(_model_parameters.value()))
+    if (!velocity_filter->setupMotionModel(_model_parameters.value()))
     {
         RTT::log(RTT::Error) << "Failed to setup motion model!" << RTT::endlog();
         return false;
     }
-
-    pose_estimator.reset(new pose_estimation::PoseEstimator(filter));
 
     // setup process noise
     const VelocityProcessNoise& process_noise = _process_noise.value();
@@ -195,9 +203,9 @@ bool VelocityProvider::configureHook()
     else
         process_noise_cov(3,3) = 0.01;
 
-    pose_estimator->setProcessNoise(process_noise_cov);
+    velocity_filter->setProcessNoiseCovariance(process_noise_cov);
 
-    pose_estimator->setMaxTimeDelta(_max_time_delta.get());
+    velocity_filter->setMaxTimeDelta(_max_time_delta.get());
 
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());
@@ -225,16 +233,6 @@ void VelocityProvider::updateHook()
     new_state = RUNNING;
     VelocityProviderBase::updateHook();
 
-    // integrate measurements
-    try
-    {
-        pose_estimator->integrateMeasurements();
-    }
-    catch (std::runtime_error e)
-    {
-        RTT::log(RTT::Error) << "Failed to integrate measurements: " << e.what() << RTT::endlog();
-    }
-
     // check stream alignment status
     verifier->verifyStreamAlignerStatus(_transformer.getStreamAlignerStatus(), streams_with_alignment_failures, streams_with_critical_alignment_failures);
     if(streams_with_alignment_failures > 0)
@@ -243,17 +241,18 @@ void VelocityProvider::updateHook()
 	error(CRITICAL_ALIGNMENT_FAILURE);
 
     // write estimated body state
-    VelocityUKF::FilterState current_state;
-    if(pose_estimator->getEstimatedState(current_state))
+    VelocityUKF::State current_state;
+    VelocityUKF::Covariance state_cov;
+    if(velocity_filter->getCurrentState(current_state, state_cov))
     {
         base::samples::RigidBodyState velocity_sample;
-        velocity_sample.velocity = current_state.mu.block(0,0,3,1);
-        velocity_sample.position.z() = current_state.mu(3,0);
-        velocity_sample.angular_velocity = current_state.mu.block(4,0,3,1);
-        velocity_sample.cov_velocity = current_state.cov.block(0,0,3,3);
-        velocity_sample.cov_position(2,2) = current_state.cov(3,3);
-        velocity_sample.cov_angular_velocity = current_state.cov.block(4,4,3,3);
-        velocity_sample.time = pose_estimator->getLastMeasurementTime();
+        velocity_sample.velocity = current_state.velocity;
+        velocity_sample.position.z() = current_state.z_position(0);
+        velocity_sample.angular_velocity = current_angular_velocity;
+        velocity_sample.cov_velocity = state_cov.block(0,0,3,3);
+        velocity_sample.cov_position(2,2) = state_cov(3,3);
+        velocity_sample.cov_angular_velocity = _cov_angular_velocity.value();
+        velocity_sample.time = velocity_filter->getLastMeasurementTime();
         velocity_sample.targetFrame = _target_frame.value();
         velocity_sample.sourceFrame = _target_frame.value();
         _velocity_samples.write(velocity_sample);
