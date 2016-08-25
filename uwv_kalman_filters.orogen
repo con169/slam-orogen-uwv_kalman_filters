@@ -4,7 +4,6 @@ version "0.1"
 using_library "uwv_kalman_filters"
 
 import_types_from "base"
-import_types_from "auv_control"
 import_types_from "uwv_dynamic_model"
 import_types_from "uwv_kalman_filtersTypes.hpp"
 
@@ -36,7 +35,7 @@ task_context "VelocityProvider" do
     #******************************
 
     # Thrusters' commands
-    input_port("body_efforts", "base::LinearAngular6DCommand").
+    input_port("body_efforts", "/base/commands/LinearAngular6DCommand").
         needs_reliable_connection
 
     # Velocity samples from a DVL, containing the velocity.

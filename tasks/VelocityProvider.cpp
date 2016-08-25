@@ -90,7 +90,7 @@ void VelocityProvider::imu_sensor_samplesTransformerCallback(const base::Time &t
         RTT::log(RTT::Error) << "Angular velocity measurement contains NaN's, it will be skipped!" << RTT::endlog();
 }
 
-void VelocityProvider::body_effortsTransformerCallback(const base::Time &ts, const ::base::LinearAngular6DCommand &body_efforts_sample)
+void VelocityProvider::body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample)
 {
     if(!base::isnotnan(body_efforts_sample.linear) || !base::isnotnan(body_efforts_sample.angular))
     {

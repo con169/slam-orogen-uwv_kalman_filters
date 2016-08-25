@@ -7,7 +7,9 @@
 #include <boost/shared_ptr.hpp>
 #include <pose_estimation/StreamAlignmentVerifier.hpp>
 #include <uwv_kalman_filters/uwv_kalman_filtersTypes.hpp>
-#include <auv_control/6dControl.hpp>
+#include <base/commands/LinearAngular6DCommand.hpp>
+#include <base/samples/RigidBodyState.hpp>
+#include <base/samples/IMUSensors.hpp>
 
 namespace uwv_kalman_filters {
 
@@ -44,7 +46,7 @@ namespace uwv_kalman_filters {
 
         virtual void imu_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &imu_sensor_samples_sample);
 
-        virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::LinearAngular6DCommand &body_efforts);
+        virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts);
 
         virtual void pressure_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_samples_sample);
 
