@@ -97,7 +97,7 @@ void VelocityProvider::body_effortsTransformerCallback(const base::Time &ts, con
         RTT::log(RTT::Error) << "Body effort measurements contain NaN values! Measurement will be skipped." << RTT::endlog();
         return;
     }
-    
+
     VelocityUKF::BodyEffortsMeasurement measurement;
     measurement.mu.resize(6);
     measurement.mu.block(0,0,3,1) = body_efforts_sample.linear;
@@ -176,8 +176,8 @@ bool VelocityProvider::configureHook()
     VelocityUKF::State init_state;
     VelocityUKF::Covariance state_cov;
     // linear velocity
-    init_state.velocity = VelocityType::Zero();
-    init_state.z_position = ZPosType::Zero();
+    init_state.velocity = VelocityType(MTK::vect<3, double>::Zero());
+    init_state.z_position = ZPosType(MTK::vect<1, double>::Zero());
     state_cov = 0.1 * VelocityUKF::Covariance::Identity();
     state_cov(3,3) = 100.0;
     velocity_filter.reset(new VelocityUKF(init_state, state_cov));
@@ -216,7 +216,7 @@ bool VelocityProvider::configureHook()
     streams_with_critical_alignment_failures = 0;
 
     current_angular_velocity = Eigen::Vector3d::Zero();
-    
+
     last_state = PRE_OPERATIONAL;
     new_state = RUNNING;
 
