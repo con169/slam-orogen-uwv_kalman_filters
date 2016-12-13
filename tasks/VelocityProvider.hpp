@@ -38,6 +38,7 @@ namespace uwv_kalman_filters {
         unsigned streams_with_alignment_failures;
 	unsigned streams_with_critical_alignment_failures;
         Eigen::Vector3d current_angular_velocity;
+        bool filter_state_changed;
         States last_state;
         States new_state;
 
