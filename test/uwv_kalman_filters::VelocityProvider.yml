@@ -1,0 +1,77 @@
+--- name:default
+# Time in s between body_efforts readings
+body_efforts_period: 0.08
+# the global name that should be used for the internal body frame
+body_frame: body
+# Covariance matrix of the angular velocity measurements
+cov_angular_velocity:
+  data:
+  - 2.918697e-06
+  - 0.0
+  - 0.0
+  - 0.0
+  - 2.797721e-06
+  - 0.0
+  - 0.0
+  - 0.0
+  - 2.833120e-06
+# Filter process noise, NaN values will be ignored and set to a healthy but likely overconfident value.
+process_noise:
+  velocity_noise:
+    data:
+    - 0.0008
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0008
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0008
+  depth_noise: 0.1
+# the global name that should be used for the internal body frame
+body_frame: body
+# the global name that should be used for the internal dvl frame
+dvl_frame: dvl
+# Time in s between dvl_velocity_samples readings
+dvl_velocity_samples_period: 0.23
+# the global name that should be used for the internal imu frame
+imu_frame: imu
+# the global name that should be used for the internal pressure_sensor frame
+pressure_sensor_frame: pressure_sensor
+# Time in s between imu_sensor_samples readings
+imu_sensor_samples_period: 0.009
+# Time in s between joint_samples readings
+body_efforts_period: 0.07
+# Time in s between pressure_sensor_samples readings
+pressure_sensor_samples_period: 0.2
+# max time delta between to successive measurements in seconds
+max_time_delta: 1.0
+# Parameters of the motion model.
+model_parameters:
+  model_type: :SIMPLE
+  inertia_matrix:
+    data: [851, 0, 0, 0, 0,  0,     0, 1042.95, 0, 0, 0, 0,     0, 0, 1516.78, 0, 0, 0,     0, 0, 0, 12, 0,  0,     0, 0, 0, 0, 14, 0,     0, 0, 0, 0, 0, 422.367]
+  damping_matrices:
+  - data: [39.57, 0, 0, 0, 0,  0,     0, 1.4554, 0, 0, 0, 0,     0, 0, 51.8056, 0, 0, 0,     0, 0, 0, 4, 0, 0,     0, 0, 0, 0, 6, 0,     0, 0, 0, 0, 0, 0]
+  - data: [8.62, 0, 0, 0, 0, 0,     0, 5, 0, 0, 0, 0,     0, 0, 2.24, 0, 0, 0,     0, 0, 0, 35, 0, 0,     0, 0, 0, 0, 35, 0,     0, 0, 0, 0, 0, 334.41]
+  distance_body2centerofbuoyancy:
+    data:
+    - 0.0
+    - 0.0
+    - 0.0
+  distance_body2centerofgravity:
+    data:
+    - 0.0
+    - 0.0
+    - 0.0
+  weight: 2800.0
+  buoyancy: 2812.0
+# list of static transformations
+static_transformations: []
+# Since the pose is unknown target and source frame will be the same
+target_frame: body
+# Maximum time in seconds the transformer will wait until it starts dropping samples
+transformer_max_latency: 0.3
+# Minimum system time in seconds between two updates of the status ports
+transformer_status_period: 0.3
