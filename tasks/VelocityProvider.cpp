@@ -155,6 +155,7 @@ void VelocityProvider::predictionStep(const base::Time& sample_time)
     try
     {
         velocity_filter->predictionStepFromSampleTime(sample_time);
+        filter_state_changed = true;
     }
     catch(const std::runtime_error& e)
     {
@@ -216,6 +217,7 @@ bool VelocityProvider::configureHook()
     streams_with_critical_alignment_failures = 0;
 
     current_angular_velocity = Eigen::Vector3d::Zero();
+    filter_state_changed = false;
 
     last_state = PRE_OPERATIONAL;
     new_state = RUNNING;
@@ -243,7 +245,7 @@ void VelocityProvider::updateHook()
     // write estimated body state
     VelocityUKF::State current_state;
     VelocityUKF::Covariance state_cov;
-    if(velocity_filter->getCurrentState(current_state, state_cov))
+    if(filter_state_changed && velocity_filter->getCurrentState(current_state, state_cov))
     {
         base::samples::RigidBodyState velocity_sample;
         velocity_sample.velocity = current_state.velocity;
@@ -256,6 +258,7 @@ void VelocityProvider::updateHook()
         velocity_sample.targetFrame = _target_frame.value();
         velocity_sample.sourceFrame = _target_frame.value();
         _velocity_samples.write(velocity_sample);
+        filter_state_changed = false;
     }
 
     // write task state if it has changed
