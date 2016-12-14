@@ -72,11 +72,12 @@ describe 'uwv_kalmam_filters::VelocityProvider configuration' do
         velocity_provider.configure
         velocity_provider.start
 
+	base_time = Time.now
 	count_zero_timestamp = 0
 
         for i in 0..20
             effort = zero_command
-            effort.time = effort.time + 0.01*i
+            effort.time = base_time
             body_efforts.write effort
 
 	    vel_data = assert_has_one_new_sample  velocity_samples, 1
@@ -85,7 +86,7 @@ describe 'uwv_kalmam_filters::VelocityProvider configuration' do
 	    end
 
 	    dvl = dvl_data(Types::Base::Vector3d.Zero)
-	    dvl.time = dvl.time + 0.01*i
+	    dvl.time = base_time + 0.001
 	    dvl_velocity_samples.write dvl
 
 	    vel_data = assert_has_one_new_sample  velocity_samples, 1
@@ -94,7 +95,7 @@ describe 'uwv_kalmam_filters::VelocityProvider configuration' do
 	    end
 
 	    imu = imu_data(Types::Base::Vector3d.Zero)
-	    imu.time = imu.time + 0.01*i
+	    imu.time = base_time + 0.002
 	    imu_sensor_samples.write imu
 
 	    vel_data = assert_has_one_new_sample  velocity_samples, 1
@@ -103,13 +104,16 @@ describe 'uwv_kalmam_filters::VelocityProvider configuration' do
 	    end
 
 	    depth = depth_data(-3)
-	    depth.time = depth.time + 0.01*i
+	    depth.time = base_time + 0.003
 	    pressure_sensor_samples.write depth
 
 	    vel_data = assert_has_one_new_sample  velocity_samples, 1
 	    if vel_data.time == Time.at(0)
 		count_zero_timestamp = count_zero_timestamp +1
 	    end
+
+	    # Step increment
+	    base_time = base_time + 0.01
         end
 
         assert_equal 0, count_zero_timestamp
@@ -124,12 +128,13 @@ describe 'uwv_kalmam_filters::VelocityProvider configuration' do
         velocity_provider.configure
         velocity_provider.start
 
+	base_time = Time.now
 	last_timestamp = Time.at(0)
 	count_repeated_timestamp = 0
 
         for i in 0..20
             effort = zero_command
-            effort.time = effort.time + 0.01*i
+            effort.time = base_time
             body_efforts.write effort
 
 	    vel_data = assert_has_one_new_sample  velocity_samples, 1
@@ -139,7 +144,7 @@ describe 'uwv_kalmam_filters::VelocityProvider configuration' do
 	    last_timestamp = vel_data.time
 
 	    dvl = dvl_data(Types::Base::Vector3d.Zero)
-	    dvl.time = dvl.time + 0.01*i
+	    dvl.time = base_time + 0.001
 	    dvl_velocity_samples.write dvl
 
 	    vel_data = assert_has_one_new_sample  velocity_samples, 1
@@ -149,7 +154,7 @@ describe 'uwv_kalmam_filters::VelocityProvider configuration' do
 	    last_timestamp = vel_data.time
 
 	    imu = imu_data(Types::Base::Vector3d.Zero)
-	    imu.time = imu.time + 0.01*i
+	    imu.time = base_time + 0.002
 	    imu_sensor_samples.write imu
 
 	    vel_data = assert_has_one_new_sample  velocity_samples, 1
@@ -159,7 +164,7 @@ describe 'uwv_kalmam_filters::VelocityProvider configuration' do
 	    last_timestamp = vel_data.time
 
 	    depth = depth_data(-3)
-	    depth.time = depth.time + 0.01*i
+	    depth.time = base_time + 0.003
 	    pressure_sensor_samples.write depth
 
 	    vel_data = assert_has_one_new_sample  velocity_samples, 1
@@ -167,6 +172,9 @@ describe 'uwv_kalmam_filters::VelocityProvider configuration' do
 		count_repeated_timestamp = count_repeated_timestamp +1
 	    end
 	    last_timestamp = vel_data.time
+
+	    # Step increment
+	    base_time = base_time + 0.01
         end
 
         assert_equal 0, count_repeated_timestamp

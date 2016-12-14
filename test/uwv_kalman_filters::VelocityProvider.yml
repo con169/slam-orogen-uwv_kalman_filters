@@ -72,6 +72,6 @@ static_transformations: []
 # Since the pose is unknown target and source frame will be the same
 target_frame: body
 # Maximum time in seconds the transformer will wait until it starts dropping samples
-transformer_max_latency: 0.3
+transformer_max_latency: 0
 # Minimum system time in seconds between two updates of the status ports
 transformer_status_period: 0.3
