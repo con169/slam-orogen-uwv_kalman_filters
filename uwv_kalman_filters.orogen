@@ -80,6 +80,6 @@ task_context "VelocityProvider" do
     runtime_states :MISSING_TRANSFORMATION, :TRANSFORMATION_ALIGNMENT_FAILURES
     error_states :CRITICAL_ALIGNMENT_FAILURE
 
-    port_driven
+    periodic 0.01
 end
 
