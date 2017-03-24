@@ -239,7 +239,7 @@ void VelocityProvider::updateHook()
     if(streams_with_alignment_failures > 0)
         new_state = TRANSFORMATION_ALIGNMENT_FAILURES;
     if(streams_with_critical_alignment_failures > 0)
-	error(CRITICAL_ALIGNMENT_FAILURE);
+        exception(CRITICAL_ALIGNMENT_FAILURE);
 
     // write estimated body state
     VelocityUKF::State current_state;
