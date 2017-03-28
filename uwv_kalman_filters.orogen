@@ -1,11 +1,13 @@
 name "uwv_kalman_filters"
 version "0.1"
 
+using_library "base-logging"
 using_library "uwv_kalman_filters"
 
 import_types_from "base"
 import_types_from "uwv_dynamic_model"
 import_types_from "uwv_kalman_filtersTypes.hpp"
+import_types_from "uwv_kalman_filters/PoseUKFConfig.hpp"
 
 
 task_context "VelocityProvider" do
@@ -83,3 +85,92 @@ task_context "VelocityProvider" do
     periodic 0.01
 end
 
+task_context "PoseEstimator" do
+    needs_configuration
+
+    #******************************
+    #***** Filter Properties ******
+    #******************************
+
+    # The initial state. Position, orientation and covariaces must be valid
+    property( "initial_state", "/base/samples/RigidBodyState" )
+
+    # Filter configuration
+    property( "filter_config", "/uwv_kalman_filters/PoseUKFConfig" )
+
+    # Filter process noise
+    property( "process_noise", "/uwv_kalman_filters/PoseEstimatorProcessNoise")
+
+    # Parameters of the motion model.
+    property( "model_parameters", "/uwv_dynamic_model/UWVParameters" )
+
+    # Covariance matrix of the linear body effort measurements
+    property( "cov_body_efforts_diag", "/base/Vector3d" )
+
+    # max time delta between to successive measurements in seconds
+    property( "max_time_delta", "double", 2.0 )
+
+    # The target frame of the estimated pose. The source frame is the body frame (as declared in the transformer configuration)
+    property( 'target_frame', '/std/string', 'world' )
+
+
+    #******************************
+    #******* Input Ports **********
+    #******************************
+
+    # Thrusters' status samples expressed in the body frame
+    input_port("body_efforts", "/base/commands/LinearAngular6DCommand").
+        needs_reliable_connection
+
+    # Velocity samples from a DVL, containing the velocity.
+    input_port( "dvl_velocity_samples", "/base/samples/RigidBodyState" ).
+        needs_reliable_connection
+
+    # IMU acceleration and angular velocities samples
+    input_port('imu_sensor_samples', '/base/samples/IMUSensors').
+        needs_reliable_connection
+
+    # Pressure sensor samples
+    input_port('pressure_sensor_samples', '/base/samples/RigidBodyState').
+        needs_reliable_connection
+
+    # Position samples from an absolut source (e.g. GPS or USBL) expressed in the body frame
+    input_port( "xy_position_samples", "/base/samples/RigidBodyState" ).
+        needs_reliable_connection
+
+
+    #******************************
+    #******* Output Ports *********
+    #******************************
+
+    # timestamped samples of the current estimated pose of the robot
+    output_port( "pose_samples", "/base/samples/RigidBodyState" )
+
+    # Secondary filter states. E.g. acceleration and bias
+    output_port( "secondary_states", "/uwv_kalman_filters/SecondaryStates")
+
+
+    #******************************
+    #** Aggregator Parameters ***** 
+    #******************************
+    transformer do
+        transformation("imu", "body")
+        transformation("dvl", "imu")
+        transformation("pressure_sensor", "imu")
+
+        align_port("body_efforts", 0.01)
+        align_port("dvl_velocity_samples", 0.2)
+        align_port("imu_sensor_samples", 0.01)
+        align_port("pressure_sensor_samples", 0.01)
+        align_port("xy_position_samples", 0.1)
+        max_latency(0.2)
+    end
+
+    #******************************
+    #******** Task States *********
+    #******************************
+    runtime_states :MISSING_TRANSFORMATION, :TRANSFORMATION_ALIGNMENT_FAILURES
+    exception_states :CRITICAL_ALIGNMENT_FAILURE
+
+    periodic 0.01
+end

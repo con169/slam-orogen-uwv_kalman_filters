@@ -8,6 +8,7 @@
   <logo>http://</logo>
   <depend package="base/cmake" />
   <depend package="base/orogen/types" />
+  <depend package="base/logging" />
   <depend package="control/orogen/uwv_dynamic_model" />
   <depend package="slam/uwv_kalman_filters" />
 
