@@ -144,7 +144,7 @@ void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts,
 {
     // apply xy measurement
     PoseUKF::XY_Position measurement;
-    measurement.mu = xy_position_samples_sample.position.head<2>() + imuInBody.translation().head<2>();
+    measurement.mu = xy_position_samples_sample.position.head<2>() + imu_in_body.translation().head<2>();
     measurement.cov = xy_position_samples_sample.cov_position.topLeftCorner(2,2);
 
     try
@@ -245,13 +245,12 @@ bool PoseEstimator::configureHook()
         return false;
 
     // get IMU to body transformation
-    imuInBody;
-    if(!_imu2body.get(base::Time(), imuInBody))
+    if(!_imu2body.get(base::Time(), imu_in_body))
     {
         LOG_ERROR_S << "Failed to get IMU pose in body frame. Note that this has to be a static transformation!";
         return false;
     }
-    if(!imuInBody.linear().isApprox(Eigen::Matrix3d::Identity()))
+    if(!imu_in_body.linear().isApprox(Eigen::Matrix3d::Identity()))
     {
         LOG_ERROR_S << "The IMU frame can't be rotated with respect to the body frame!";
         LOG_ERROR_S << "This is currently not supported by the filter.";
@@ -259,7 +258,7 @@ bool PoseEstimator::configureHook()
     }
 
     // initialize filter
-    if(!initializeFilter(_initial_state.value(), _filter_config.value(), _model_parameters.value(), imuInBody))
+    if(!initializeFilter(_initial_state.value(), _filter_config.value(), _model_parameters.value(), imu_in_body))
         return false;
 
     // set process noise
@@ -316,10 +315,10 @@ void PoseEstimator::updateHook()
     if(current_sample_time > last_sample_time && pose_filter->getCurrentState(current_state, state_cov))
     {
         base::samples::RigidBodyState pose_sample;
-        pose_sample.position = Eigen::Vector3d(current_state.position) - imuInBody.translation();
+        pose_sample.position = Eigen::Vector3d(current_state.position) - imu_in_body.translation();
         pose_sample.orientation = current_state.orientation;
         pose_sample.angular_velocity = pose_filter->getRotationRate();
-        pose_sample.velocity = Eigen::Vector3d(current_state.velocity) - pose_sample.orientation * pose_sample.angular_velocity.cross(imuInBody.translation());
+        pose_sample.velocity = Eigen::Vector3d(current_state.velocity) - pose_sample.orientation * pose_sample.angular_velocity.cross(imu_in_body.translation());
         pose_sample.cov_position = MTK::subblock(state_cov, &FilterState::position);
         pose_sample.cov_orientation = MTK::subblock(state_cov, &FilterState::orientation);
         pose_sample.cov_angular_velocity = cov_angular_velocity;

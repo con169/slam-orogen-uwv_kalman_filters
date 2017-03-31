@@ -126,15 +126,15 @@ task_context "PoseEstimator" do
     input_port( "dvl_velocity_samples", "/base/samples/RigidBodyState" ).
         needs_reliable_connection
 
-    # IMU acceleration and angular velocities samples
+    # IMU acceleration and angular velocities samples.
     input_port('imu_sensor_samples', '/base/samples/IMUSensors').
         needs_reliable_connection
 
-    # Pressure sensor samples
+    # Pressure sensor samples. Altitude in navigation frame.
     input_port('pressure_sensor_samples', '/base/samples/RigidBodyState').
         needs_reliable_connection
 
-    # Position samples from an absolut source (e.g. GPS or USBL) expressed in the body frame
+    # Position samples from an absolut source (e.g. GPS or USBL) expressed in the navigation frame
     input_port( "xy_position_samples", "/base/samples/RigidBodyState" ).
         needs_reliable_connection
 

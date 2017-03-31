@@ -39,7 +39,7 @@ namespace uwv_kalman_filters{
     protected:
         boost::shared_ptr<uwv_kalman_filters::PoseUKF> pose_filter;
         boost::shared_ptr<pose_estimation::StreamAlignmentVerifier> verifier;
-        Eigen::Affine3d imuInBody;
+        Eigen::Affine3d imu_in_body;
         Eigen::Matrix3d cov_angular_velocity;
         Eigen::Matrix3d cov_acceleration;
         Eigen::Matrix3d cov_body_efforts;
