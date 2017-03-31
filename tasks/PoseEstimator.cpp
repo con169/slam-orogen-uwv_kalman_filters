@@ -3,7 +3,7 @@
 #include "PoseEstimator.hpp"
 #include <uwv_kalman_filters/PoseUKF.hpp>
 #include <pose_estimation/StreamAlignmentVerifier.hpp>
-#include <pose_estimation/GravityModel.hpp>
+#include <pose_estimation/GravitationalModel.hpp>
 #include <base-logging/Logging.hpp>
 #include "uwv_kalman_filtersTypes.hpp"
 
@@ -190,7 +190,7 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     initial_state.bias_gyro = BiasType(filter_config.rotation_rate.bias_offset);
     initial_state.bias_acc = BiasType(filter_config.acceleration.bias_offset);
     Eigen::Matrix<double, 1, 1> gravity;
-    gravity(0) = pose_estimation::GravityModel(filter_config.location.latitude, filter_config.location.altitude);
+    gravity(0) = pose_estimation::GravitationalModel::WGS_84(filter_config.location.latitude, filter_config.location.altitude);
     initial_state.gravity = GravityType(gravity);
 
     PoseUKF::Covariance initial_state_cov = PoseUKF::Covariance::Zero();
