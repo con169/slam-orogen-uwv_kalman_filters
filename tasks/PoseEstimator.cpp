@@ -39,7 +39,7 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
     }
     catch(const std::runtime_error& e)
     {
-        RTT::log(RTT::Error) << "Failed to integrate body effort measurements: " << e.what() << RTT::endlog();
+        LOG_ERROR_S << "Failed to integrate body effort measurements: " << e.what();
     }
 }
 
@@ -49,7 +49,7 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
     Eigen::Affine3d dvlInIMU;
     if (!_dvl2imu.get(ts, dvlInIMU))
     {
-        RTT::log(RTT::Error) << "skip, couldn't receive a valid dvl-in-imu transformation sample!" << RTT::endlog();
+        LOG_ERROR_S << "skip, couldn't receive a valid dvl-in-imu transformation sample!";
         new_state = MISSING_TRANSFORMATION;
         return;
     }
@@ -70,11 +70,11 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
         }
         catch(const std::runtime_error& e)
         {
-            RTT::log(RTT::Error) << "Failed to integrate DVL measurement: " << e.what() << RTT::endlog();
+            LOG_ERROR_S << "Failed to integrate DVL measurement: " << e.what();
         }
     }
     else
-        RTT::log(RTT::Info) << "DVL measurement contains NaN's, it will be skipped!" << RTT::endlog();
+        LOG_INFO_S << "DVL measurement contains NaN's, it will be skipped!";
 }
 
 void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &imu_sensor_samples_sample)
@@ -117,7 +117,7 @@ void PoseEstimator::pressure_sensor_samplesTransformerCallback(const base::Time 
     Eigen::Affine3d pressureSensorInIMU;
     if (!_pressure_sensor2imu.get(ts, pressureSensorInIMU))
     {
-        RTT::log(RTT::Error) << "skip, couldn't receive a valid pressure-sensor-in-imu transformation sample!" << RTT::endlog();
+        LOG_ERROR_S << "skip, couldn't receive a valid pressure-sensor-in-imu transformation sample!";
         new_state = MISSING_TRANSFORMATION;
         return;
     }
@@ -136,7 +136,7 @@ void PoseEstimator::pressure_sensor_samplesTransformerCallback(const base::Time 
     }
     catch(const std::runtime_error& e)
     {
-        RTT::log(RTT::Error) << "Failed to integrate altitude measurement: " << e.what() << RTT::endlog();
+        LOG_ERROR_S << "Failed to integrate altitude measurement: " << e.what();
     }
 }
 
@@ -153,7 +153,7 @@ void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts,
     }
     catch(const std::runtime_error& e)
     {
-        RTT::log(RTT::Error) << "Failed to integrate 2D position measurement: " << e.what() << RTT::endlog();
+        LOG_ERROR_S << "Failed to integrate 2D position measurement: " << e.what();
     }
 }
 
