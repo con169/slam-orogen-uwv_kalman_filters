@@ -144,8 +144,8 @@ void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts,
 {
     // apply xy measurement
     PoseUKF::XY_Position measurement;
-    measurement.mu = xy_position_samples_sample.position.head<2>() + imu_in_body.translation().head<2>();
-    measurement.cov = xy_position_samples_sample.cov_position.topLeftCorner(2,2);
+    measurement.mu = nav_in_nwu_2d * (xy_position_samples_sample.position.head<2>() + imu_in_body.translation().head<2>());
+    measurement.cov = nav_in_nwu_2d.linear() * xy_position_samples_sample.cov_position.topLeftCorner(2,2) * nav_in_nwu_2d.linear().transpose();
 
     try
     {
@@ -173,7 +173,8 @@ void PoseEstimator::predictionStep(const base::Time& sample_time)
 bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initial_rbs,
                                      const PoseUKFConfig& filter_config,
                                      const uwv_dynamic_model::UWVParameters& model_parameters,
-                                     const Eigen::Affine3d& imu_in_body)
+                                     const Eigen::Affine3d& imu_in_body,
+                                     const Eigen::Affine3d& nav_in_nwu)
 {
     if(!initial_rbs.hasValidPosition() || !initial_rbs.hasValidPositionCovariance()
         || !initial_rbs.hasValidOrientation() || !initial_rbs.hasValidOrientationCovariance())
@@ -183,8 +184,8 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     }
 
     PoseUKF::State initial_state;
-    initial_state.position = TranslationType(initial_rbs.position);
-    initial_state.orientation = RotationType(MTK::SO3<double>(initial_rbs.orientation));
+    initial_state.position = TranslationType(nav_in_nwu * (initial_rbs.position + imu_in_body.translation()));
+    initial_state.orientation = RotationType(MTK::SO3<double>(nav_in_nwu.rotation() * initial_rbs.orientation));
     initial_state.velocity = VelocityType(Eigen::Vector3d::Zero());
     initial_state.acceleration = AccelerationType(Eigen::Vector3d::Zero());
     initial_state.bias_gyro = BiasType(filter_config.rotation_rate.bias_offset);
@@ -194,8 +195,8 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     initial_state.gravity = GravityType(gravity);
 
     PoseUKF::Covariance initial_state_cov = PoseUKF::Covariance::Zero();
-    MTK::subblock(initial_state_cov, &FilterState::position) = initial_rbs.cov_position;
-    MTK::subblock(initial_state_cov, &FilterState::orientation) = initial_rbs.cov_orientation;
+    MTK::subblock(initial_state_cov, &FilterState::position) = nav_in_nwu.linear() * initial_rbs.cov_position * nav_in_nwu.linear().transpose();
+    MTK::subblock(initial_state_cov, &FilterState::orientation) = nav_in_nwu.linear() * initial_rbs.cov_orientation * nav_in_nwu.linear().transpose();
     MTK::subblock(initial_state_cov, &FilterState::velocity) = Eigen::Matrix3d::Identity(); // velocity is unknown at the start
     MTK::subblock(initial_state_cov, &FilterState::acceleration) = Eigen::Matrix3d::Identity(); // acceleration is unknown at the start
     MTK::subblock(initial_state_cov, &FilterState::bias_gyro) = filter_config.rotation_rate.bias_instability.cwiseAbs2().asDiagonal();
@@ -257,8 +258,24 @@ bool PoseEstimator::configureHook()
         return false;
     }
 
+    // get navigation in NWU aligned frame
+    if(!_navigation2navigation_nwu.get(base::Time(), nav_in_nwu))
+    {
+        LOG_ERROR_S << "Failed to get navigation in NWU frame. Note that this has to be a static transformation!";
+        return false;
+    }
+    base::Vector3d nav_in_nwu_euler = base::getEuler(base::Orientation(nav_in_nwu.linear()));
+    if(nav_in_nwu_euler.y() != 0. || nav_in_nwu_euler.z() != 0.)
+    {
+        LOG_ERROR_S << "The navigation frame can only be rotated with respect to the z axis in the NWU frame!";
+        return false;
+    }
+    nwu_in_nav = nav_in_nwu.inverse();
+    nav_in_nwu_2d = Eigen::Affine2d(Eigen::Rotation2Dd(nav_in_nwu_euler.x()));
+    nav_in_nwu_2d.translation() = nwu_in_nav.translation().head<2>();
+
     // initialize filter
-    if(!initializeFilter(_initial_state.value(), _filter_config.value(), _model_parameters.value(), imu_in_body))
+    if(!initializeFilter(_initial_state.value(), _filter_config.value(), _model_parameters.value(), imu_in_body, nav_in_nwu))
         return false;
 
     // set process noise
@@ -314,17 +331,19 @@ void PoseEstimator::updateHook()
     base::Time current_sample_time = pose_filter->getLastMeasurementTime();
     if(current_sample_time > last_sample_time && pose_filter->getCurrentState(current_state, state_cov))
     {
+        /* Transform filter state from IMU in NWU aligned navigation frame to
+         * body in navigation frame */
         base::samples::RigidBodyState pose_sample;
-        pose_sample.position = Eigen::Vector3d(current_state.position) - imu_in_body.translation();
-        pose_sample.orientation = current_state.orientation;
+        pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - imu_in_body.translation());
+        pose_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
         pose_sample.angular_velocity = pose_filter->getRotationRate();
-        pose_sample.velocity = Eigen::Vector3d(current_state.velocity) - pose_sample.orientation * pose_sample.angular_velocity.cross(imu_in_body.translation());
-        pose_sample.cov_position = MTK::subblock(state_cov, &FilterState::position);
-        pose_sample.cov_orientation = MTK::subblock(state_cov, &FilterState::orientation);
+        pose_sample.velocity = nwu_in_nav.rotation() * Eigen::Vector3d(current_state.velocity) - pose_sample.orientation * pose_sample.angular_velocity.cross(imu_in_body.translation());
+        pose_sample.cov_position = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::position) * nwu_in_nav.linear().transpose();
+        pose_sample.cov_orientation = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::orientation) * nwu_in_nav.linear().transpose();
         pose_sample.cov_angular_velocity = cov_angular_velocity;
-        pose_sample.cov_velocity = MTK::subblock(state_cov, &FilterState::velocity);
+        pose_sample.cov_velocity = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::velocity) * nwu_in_nav.linear().transpose();
         pose_sample.time = current_sample_time;
-        pose_sample.targetFrame = _target_frame.value();
+        pose_sample.targetFrame = _navigation_frame.value();
         pose_sample.sourceFrame = _body_frame.value();
         _pose_samples.write(pose_sample);
 

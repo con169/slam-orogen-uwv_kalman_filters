@@ -85,6 +85,12 @@ task_context "VelocityProvider" do
     periodic 0.01
 end
 
+#
+# The filter must receive accelerations and angular velocities from an inertial measurement unit,
+# all other inputs are recommended but optional.
+# The output of the filter is the estimated pose and velocities of the body in the navigation frame.
+# Note that the internal state of the filter is the IMU in a NWU aligned navigation frame.
+#
 task_context "PoseEstimator" do
     needs_configuration
 
@@ -92,7 +98,7 @@ task_context "PoseEstimator" do
     #***** Filter Properties ******
     #******************************
 
-    # The initial state. Position, orientation and covariaces must be valid
+    # The initial pose in the navigation frame. Position, orientation and covariaces must be valid.
     property( "initial_state", "/base/samples/RigidBodyState" )
 
     # Filter configuration
@@ -109,9 +115,6 @@ task_context "PoseEstimator" do
 
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
-
-    # The target frame of the estimated pose. The source frame is the body frame (as declared in the transformer configuration)
-    property( 'target_frame', '/std/string', 'world' )
 
 
     #******************************
@@ -157,6 +160,10 @@ task_context "PoseEstimator" do
         transformation("imu", "body")
         transformation("dvl", "imu")
         transformation("pressure_sensor", "imu")
+        # Allows to define a navigation frame in the NWU aligned navigation frame.
+        # The NWU aligned navigation frame is the internal navigation frame of the filter.
+        # The origin of the frame is defined by the geographic position in the filter config.
+        transformation("navigation", "navigation_nwu")
 
         align_port("body_efforts", 0.01)
         align_port("dvl_velocity_samples", 0.2)

@@ -40,6 +40,9 @@ namespace uwv_kalman_filters{
         boost::shared_ptr<uwv_kalman_filters::PoseUKF> pose_filter;
         boost::shared_ptr<pose_estimation::StreamAlignmentVerifier> verifier;
         Eigen::Affine3d imu_in_body;
+        Eigen::Affine3d nav_in_nwu;
+        Eigen::Affine3d nwu_in_nav;
+        Eigen::Affine2d nav_in_nwu_2d;
         Eigen::Matrix3d cov_angular_velocity;
         Eigen::Matrix3d cov_acceleration;
         Eigen::Matrix3d cov_body_efforts;
@@ -62,7 +65,8 @@ namespace uwv_kalman_filters{
         void predictionStep(const base::Time& sample_time);
 
         bool initializeFilter(const base::samples::RigidBodyState& initial_rbs, const PoseUKFConfig& filter_config,
-                              const uwv_dynamic_model::UWVParameters& model_parameters, const Eigen::Affine3d& imu_in_body);
+                              const uwv_dynamic_model::UWVParameters& model_parameters, const Eigen::Affine3d& imu_in_body,
+                              const Eigen::Affine3d& nav_in_nwu);
 
         bool setProcessNoise(const PoseUKFConfig& filter_config, const PoseEstimatorProcessNoise& process_noise, double imu_delta_t);
 
