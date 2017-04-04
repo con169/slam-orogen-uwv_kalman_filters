@@ -9,6 +9,7 @@
 #include <base/samples/RigidBodyState.hpp>
 #include <base/samples/IMUSensors.hpp>
 #include <uwv_kalman_filters/PoseUKFConfig.hpp>
+#include <gps_base/BaseTypes.hpp>
 
 namespace pose_estimation
 {
@@ -61,6 +62,8 @@ namespace uwv_kalman_filters{
         virtual void pressure_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_sensor_samples_sample);
 
         virtual void xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample);
+
+        virtual void gps_samplesTransformerCallback(const base::Time &ts, const ::gps_base::Solution &gps_samples_sample);
 
         void predictionStep(const base::Time& sample_time);
 

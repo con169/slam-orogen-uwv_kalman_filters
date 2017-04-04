@@ -5,6 +5,7 @@ using_library "base-logging"
 using_library "uwv_kalman_filters"
 
 import_types_from "base"
+import_types_from "gps_base"
 import_types_from "uwv_dynamic_model"
 import_types_from "uwv_kalman_filtersTypes.hpp"
 import_types_from "uwv_kalman_filters/PoseUKFConfig.hpp"
@@ -141,6 +142,10 @@ task_context "PoseEstimator" do
     input_port( "xy_position_samples", "/base/samples/RigidBodyState" ).
         needs_reliable_connection
 
+    # geographic position in WGS 84
+    input_port( "gps_samples", "/gps_base/Solution" ).
+        needs_reliable_connection
+
 
     #******************************
     #******* Output Ports *********
@@ -160,6 +165,7 @@ task_context "PoseEstimator" do
         transformation("imu", "body")
         transformation("dvl", "imu")
         transformation("pressure_sensor", "imu")
+        transformation("gps", "imu")
         # Allows to define a navigation frame in the NWU aligned navigation frame.
         # The NWU aligned navigation frame is the internal navigation frame of the filter.
         # The origin of the frame is defined by the geographic position in the filter config.
@@ -170,6 +176,7 @@ task_context "PoseEstimator" do
         align_port("imu_sensor_samples", 0.01)
         align_port("pressure_sensor_samples", 0.01)
         align_port("xy_position_samples", 0.1)
+        align_port("gps_samples", 1.0)
         max_latency(0.2)
     end
 

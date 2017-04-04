@@ -157,6 +157,37 @@ void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts,
     }
 }
 
+void PoseEstimator::gps_samplesTransformerCallback(const base::Time& ts, const gps_base::Solution& gps_samples_sample)
+{
+    // receive GPS to IMU transformation
+    Eigen::Affine3d gpsInIMU;
+    if (!_gps2imu.get(ts, gpsInIMU))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid gps-in-imu transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+
+    // assuming longitude and latitude in gps_base::Solution are in degree
+    double latitude = base::Angle::deg2Rad(gps_samples_sample.latitude);
+    double longitude = base::Angle::deg2Rad(gps_samples_sample.longitude);
+
+    // apply gps measurement
+    PoseUKF::GeographicPosition measurement;
+    measurement.mu << latitude, longitude;
+    measurement.cov << std::pow(gps_samples_sample.deviationLatitude, 2.), 0.,
+                       0., std::pow(gps_samples_sample.deviationLongitude, 2.);
+
+    try
+    {
+        pose_filter->integrateMeasurement(measurement, gpsInIMU.translation());
+    }
+    catch(const std::runtime_error& e)
+    {
+        LOG_ERROR_S << "Failed to integrate GPS measurement: " << e.what();
+    }
+}
+
 void PoseEstimator::predictionStep(const base::Time& sample_time)
 {
     try

@@ -11,6 +11,7 @@
   <depend package="base/logging" />
   <depend package="control/orogen/uwv_dynamic_model" />
   <depend package="slam/uwv_kalman_filters" />
+  <depend package="drivers/orogen/gps_base" />
 
   <tags>stable</tags>
 </package>
