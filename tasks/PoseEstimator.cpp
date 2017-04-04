@@ -273,7 +273,7 @@ bool PoseEstimator::configureHook()
     Eigen::Vector3d acceleration_std = (1./sqrt_delta_t) * _filter_config.value().acceleration.randomwalk;
     cov_angular_velocity = rotation_rate_std.cwiseAbs2().asDiagonal();
     cov_acceleration = acceleration_std.cwiseAbs2().asDiagonal();
-    cov_body_efforts = _cov_body_efforts_diag.value().asDiagonal();
+    cov_body_efforts = (1./_body_efforts_period.value()) * _cov_body_efforts_diag.value().asDiagonal();
 
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());
