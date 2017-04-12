@@ -105,9 +105,6 @@ task_context "PoseEstimator" do
     # Filter configuration
     property( "filter_config", "/uwv_kalman_filters/PoseUKFConfig" )
 
-    # Filter process noise
-    property( "process_noise", "/uwv_kalman_filters/PoseEstimatorProcessNoise")
-
     # Parameters of the motion model.
     property( "model_parameters", "/uwv_dynamic_model/UWVParameters" )
 

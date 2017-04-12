@@ -18,15 +18,6 @@ struct VelocityProcessNoise
                              depth_noise(base::unknown<double>()) {}
 };
 
-struct PoseEstimatorProcessNoise
-{
-    base::Vector3d position_diag;
-    base::Vector3d acceleration_diag;
-
-    PoseEstimatorProcessNoise() : position_diag(base::Vector3d::Constant(base::unknown<double>())),
-                                  acceleration_diag(base::Vector3d::Constant(base::unknown<double>())) {}
-};
-
 struct SecondaryStates
 {
     base::Time time;

@@ -260,19 +260,20 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     return true;
 }
 
-bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, const PoseEstimatorProcessNoise& process_noise, double imu_delta_t)
+bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double imu_delta_t)
 {
-    if(!process_noise.position_diag.allFinite() || !process_noise.acceleration_diag.allFinite())
-    {
-        LOG_ERROR_S << "Process noise contains non-finite values!";
-        return false;
-    }
-
     PoseUKF::Covariance process_noise_cov = PoseUKF::Covariance::Zero();
-    MTK::subblock(process_noise_cov, &FilterState::position) = process_noise.position_diag.asDiagonal();
+    // Euler integration error position: (1/6/4 * jerk_max * dt^3)^2
+    // assuming max jerk is 4*sigma devide by 4
+    MTK::subblock(process_noise_cov, &FilterState::position) = 1.5 * (std::pow(imu_delta_t, 4.0) * ((1./6.) * 0.25 * filter_config.max_jerk).cwiseAbs2()).asDiagonal();
+    LOG_DEBUG_S << "(sigma/delta_t)^2 position:\n" << MTK::subblock(process_noise_cov, &FilterState::position);
+    // Euler integration error velocity: (1/2/4 * jerk_max * dt^2)^2
+    MTK::subblock(process_noise_cov, &FilterState::velocity) = 1.5 * (std::pow(imu_delta_t, 2.0) * (0.5 * 0.25 * filter_config.max_jerk).cwiseAbs2()).asDiagonal();
+    LOG_DEBUG_S << "(sigma/delta_t)^2 velocity:\n" << MTK::subblock(process_noise_cov, &FilterState::velocity);
+    // Euler integration error acceleration: (1/4 * jerk_max * dt)^2
+    MTK::subblock(process_noise_cov, &FilterState::acceleration) = (0.25 * filter_config.max_jerk).cwiseAbs2().asDiagonal();
+    LOG_DEBUG_S << "(sigma/delta_t)^2 acceleration:\n" << MTK::subblock(process_noise_cov, &FilterState::acceleration);
     MTK::subblock(process_noise_cov, &FilterState::orientation) = filter_config.rotation_rate.randomwalk.cwiseAbs2().asDiagonal();
-    MTK::subblock(process_noise_cov, &FilterState::velocity) = filter_config.acceleration.randomwalk.cwiseAbs2().asDiagonal();
-    MTK::subblock(process_noise_cov, &FilterState::acceleration) = process_noise.acceleration_diag.asDiagonal();
     MTK::subblock(process_noise_cov, &FilterState::bias_gyro) = (2. / (filter_config.rotation_rate.bias_tau * imu_delta_t)) *
                                         filter_config.rotation_rate.bias_instability.cwiseAbs2().asDiagonal();
     MTK::subblock(process_noise_cov, &FilterState::bias_acc) = (2. / (filter_config.acceleration.bias_tau * imu_delta_t)) *
@@ -332,7 +333,7 @@ bool PoseEstimator::configureHook()
         return false;
 
     // set process noise
-    if(!setProcessNoise(_filter_config.value(), _process_noise.value(), _imu_sensor_samples_period.value()))
+    if(!setProcessNoise(_filter_config.value(), _imu_sensor_samples_period.value()))
         return false;
 
     pose_filter->setMaxTimeDelta(_max_time_delta.get());

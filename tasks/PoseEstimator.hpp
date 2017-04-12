@@ -71,7 +71,7 @@ namespace uwv_kalman_filters{
                               const uwv_dynamic_model::UWVParameters& model_parameters, const Eigen::Affine3d& imu_in_body,
                               const Eigen::Affine3d& nav_in_nwu);
 
-        bool setProcessNoise(const PoseUKFConfig& filter_config, const PoseEstimatorProcessNoise& process_noise, double imu_delta_t);
+        bool setProcessNoise(const PoseUKFConfig& filter_config, double imu_delta_t);
 
     public:
         /** TaskContext constructor for PoseEstimator
