@@ -38,6 +38,10 @@ struct SecondaryStates
     base::Matrix3d cov_bias_acc;
     double gravity;
     double var_gravity;
+    base::MatrixXd lin_damping;
+    base::VectorXd cov_lin_damping_diag;
+    base::MatrixXd quad_damping;
+    base::VectorXd cov_quad_damping_diag;
 };
 
 }

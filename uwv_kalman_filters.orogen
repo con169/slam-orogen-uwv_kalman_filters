@@ -111,9 +111,6 @@ task_context "PoseEstimator" do
     # Parameters of the motion model.
     property( "model_parameters", "/uwv_dynamic_model/UWVParameters" )
 
-    # Covariance matrix of the linear body effort measurements
-    property( "cov_body_efforts_diag", "/base/Vector3d" )
-
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
 

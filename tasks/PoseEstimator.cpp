@@ -214,6 +214,12 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
         return false;
     }
 
+    if(model_parameters.damping_matrices.size() < 2)
+    {
+        LOG_ERROR_S << "The damping matrices must have at least two elements!";
+        return false;
+    }
+
     PoseUKF::State initial_state;
     initial_state.position = TranslationType(nav_in_nwu * (initial_rbs.position + imu_in_body.translation()));
     initial_state.orientation = RotationType(MTK::SO3<double>(nav_in_nwu.rotation() * initial_rbs.orientation));
@@ -224,6 +230,10 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     Eigen::Matrix<double, 1, 1> gravity;
     gravity(0) = pose_estimation::GravitationalModel::WGS_84(filter_config.location.latitude, filter_config.location.altitude);
     initial_state.gravity = GravityType(gravity);
+    initial_state.lin_damping.block(0,0,2,2) = model_parameters.damping_matrices[0].block(0,0,2,2);
+    initial_state.lin_damping.block(0,2,2,1) = model_parameters.damping_matrices[0].block(0,5,2,1);
+    initial_state.quad_damping.block(0,0,2,2) = model_parameters.damping_matrices[1].block(0,0,2,2);
+    initial_state.quad_damping.block(0,2,2,1) = model_parameters.damping_matrices[1].block(0,5,2,1);
 
     PoseUKF::Covariance initial_state_cov = PoseUKF::Covariance::Zero();
     MTK::subblock(initial_state_cov, &FilterState::position) = nav_in_nwu.linear() * initial_rbs.cov_position * nav_in_nwu.linear().transpose();
@@ -235,10 +245,18 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     Eigen::Matrix<double, 1, 1> gravity_var;
     gravity_var << pow(0.05, 2.); // give the gravity model a sigma of 5 cm/s^2 at the start
     MTK::subblock(initial_state_cov, &FilterState::gravity) = gravity_var;
+    MTK::subblock(initial_state_cov, &FilterState::lin_damping) = filter_config.model_noise_parameters.lin_damping_instability.cwiseAbs2().asDiagonal();
+    MTK::subblock(initial_state_cov, &FilterState::quad_damping) = filter_config.model_noise_parameters.quad_damping_instability.cwiseAbs2().asDiagonal();
+
+    PoseUKF::PoseUKFParameter filter_parameter;
+    filter_parameter.imu_in_body = imu_in_body.translation();
+    filter_parameter.acc_bias_tau = filter_config.acceleration.bias_tau;
+    filter_parameter.gyro_bias_tau = filter_config.rotation_rate.bias_tau;
+    filter_parameter.lin_damping_tau = filter_config.model_noise_parameters.lin_damping_tau;
+    filter_parameter.quad_damping_tau = filter_config.model_noise_parameters.quad_damping_tau;
 
     pose_filter.reset(new PoseUKF(initial_state, initial_state_cov, filter_config.location,
-                                  model_parameters, imu_in_body.translation(),
-                                  filter_config.rotation_rate.bias_tau, filter_config.acceleration.bias_tau));
+                                  model_parameters, filter_parameter));
     return true;
 }
 
@@ -262,6 +280,10 @@ bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, const Po
     Eigen::Matrix<double, 1, 1> gravity_noise;
     gravity_noise << 1.e-12; // add a tiny bit of noise only for numeric stability
     MTK::subblock(process_noise_cov, &FilterState::gravity) = gravity_noise;
+    MTK::subblock(process_noise_cov, &FilterState::lin_damping) = (2. / (filter_config.model_noise_parameters.lin_damping_tau * imu_delta_t)) *
+                                        filter_config.model_noise_parameters.lin_damping_instability.cwiseAbs2().asDiagonal();
+    MTK::subblock(process_noise_cov, &FilterState::quad_damping) = (2. / (filter_config.model_noise_parameters.quad_damping_tau * imu_delta_t)) *
+                                        filter_config.model_noise_parameters.quad_damping_instability.cwiseAbs2().asDiagonal();
     pose_filter->setProcessNoiseCovariance(process_noise_cov);
 
     return true;
@@ -321,7 +343,7 @@ bool PoseEstimator::configureHook()
     Eigen::Vector3d acceleration_std = (1./sqrt_delta_t) * _filter_config.value().acceleration.randomwalk;
     cov_angular_velocity = rotation_rate_std.cwiseAbs2().asDiagonal();
     cov_acceleration = acceleration_std.cwiseAbs2().asDiagonal();
-    cov_body_efforts = (1./_body_efforts_period.value()) * _cov_body_efforts_diag.value().asDiagonal();
+    cov_body_efforts = (1./_body_efforts_period.value()) * _filter_config.value().model_noise_parameters.body_efforts_std.cwiseAbs2().asDiagonal();
 
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());
@@ -387,6 +409,10 @@ void PoseEstimator::updateHook()
         secondary_states.cov_bias_acc = MTK::subblock(state_cov, &FilterState::bias_acc);
         secondary_states.gravity = current_state.gravity(0);
         secondary_states.var_gravity = MTK::subblock(state_cov, &FilterState::gravity)(0);
+        secondary_states.lin_damping = current_state.lin_damping.cwiseAbs();
+        secondary_states.cov_lin_damping_diag = MTK::subblock(state_cov, &FilterState::lin_damping).diagonal();
+        secondary_states.quad_damping = current_state.quad_damping.cwiseAbs();
+        secondary_states.cov_quad_damping_diag = MTK::subblock(state_cov, &FilterState::quad_damping).diagonal();
         secondary_states.time = current_sample_time;
         _secondary_states.write(secondary_states);
 
