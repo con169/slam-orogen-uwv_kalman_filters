@@ -32,6 +32,13 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
     measurement.mu = body_efforts_sample.linear;
     measurement.cov = cov_body_efforts;
 
+    PoseUKF::State current_state;
+    if(pose_filter->getCurrentState(current_state) && current_state.position.z() > dynamic_model_min_depth)
+    {
+        // inflate measurement uncertainty when close to the surface
+        measurement.cov = cov_body_efforts_unknown;
+    }
+
     try
     {
         // apply linear body effort measurement
@@ -74,7 +81,13 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
         }
     }
     else
-        LOG_INFO_S << "DVL measurement contains NaN's, it will be skipped!";
+    {
+        // integrate zero velocity measurement with a sigma of max velocity
+        PoseUKF::Velocity measurement;
+        measurement.mu = Eigen::Vector3d::Zero();
+        measurement.cov = cov_velocity_unknown;
+        pose_filter->integrateMeasurement(measurement);
+    }
 }
 
 void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &imu_sensor_samples_sample)
@@ -345,6 +358,10 @@ bool PoseEstimator::configureHook()
     cov_angular_velocity = rotation_rate_std.cwiseAbs2().asDiagonal();
     cov_acceleration = acceleration_std.cwiseAbs2().asDiagonal();
     cov_body_efforts = (1./_body_efforts_period.value()) * _filter_config.value().model_noise_parameters.body_efforts_std.cwiseAbs2().asDiagonal();
+    cov_body_efforts_unknown = (1./_body_efforts_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
+    cov_velocity_unknown = (1./_dvl_velocity_samples_period.value()) * (_filter_config.value().max_velocity.cwiseAbs2()).asDiagonal();
+
+    dynamic_model_min_depth = _filter_config.value().dynamic_model_min_depth;
 
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());

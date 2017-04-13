@@ -47,6 +47,9 @@ namespace uwv_kalman_filters{
         Eigen::Matrix3d cov_angular_velocity;
         Eigen::Matrix3d cov_acceleration;
         Eigen::Matrix3d cov_body_efforts;
+        Eigen::Matrix3d cov_body_efforts_unknown;
+        Eigen::Matrix3d cov_velocity_unknown;
+        double dynamic_model_min_depth;
         unsigned streams_with_alignment_failures;
         unsigned streams_with_critical_alignment_failures;
         base::Time last_sample_time;
