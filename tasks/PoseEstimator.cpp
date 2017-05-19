@@ -155,18 +155,23 @@ void PoseEstimator::pressure_sensor_samplesTransformerCallback(const base::Time 
 
 void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample)
 {
-    // apply xy measurement
-    PoseUKF::XY_Position measurement;
-    measurement.mu = nav_in_nwu_2d * (xy_position_samples_sample.position.head<2>() + imu_in_body.translation().head<2>());
-    measurement.cov = nav_in_nwu_2d.linear() * xy_position_samples_sample.cov_position.topLeftCorner(2,2) * nav_in_nwu_2d.linear().transpose();
+    PoseUKF::State current_state;
+    if(pose_filter->getCurrentState(current_state))
+    {
+        // apply xy measurement
+        PoseUKF::XY_Position measurement;
+        measurement.mu = nav_in_nwu_2d * (xy_position_samples_sample.position.head<2>() + (current_state.orientation * imu_in_body.translation()).head<2>());
+        measurement.cov = nav_in_nwu_2d.linear() * xy_position_samples_sample.cov_position.topLeftCorner(2,2) * nav_in_nwu_2d.linear().transpose();
 
-    try
-    {
-        pose_filter->integrateMeasurement(measurement);
-    }
-    catch(const std::runtime_error& e)
-    {
-        LOG_ERROR_S << "Failed to integrate 2D position measurement: " << e.what();
+        try
+        {
+            if(_integrate_markers.value())
+                pose_filter->integrateMeasurement(measurement);
+        }
+        catch(const std::runtime_error& e)
+        {
+            LOG_ERROR_S << "Failed to integrate 2D position measurement: " << e.what();
+        }
     }
 }
 
@@ -234,7 +239,7 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     }
 
     PoseUKF::State initial_state;
-    initial_state.position = TranslationType(nav_in_nwu * (initial_rbs.position + imu_in_body.translation()));
+    initial_state.position = TranslationType(nav_in_nwu * (initial_rbs.position + initial_rbs.orientation * imu_in_body.translation()));
     initial_state.orientation = RotationType(MTK::SO3<double>(nav_in_nwu.rotation() * initial_rbs.orientation));
     initial_state.velocity = VelocityType(Eigen::Vector3d::Zero());
     initial_state.acceleration = AccelerationType(Eigen::Vector3d::Zero());
@@ -406,7 +411,7 @@ void PoseEstimator::updateHook()
         /* Transform filter state from IMU in NWU aligned navigation frame to
          * body in navigation frame */
         base::samples::RigidBodyState pose_sample;
-        pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - imu_in_body.translation());
+        pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
         pose_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
         pose_sample.angular_velocity = pose_filter->getRotationRate();
         pose_sample.velocity = nwu_in_nav.rotation() * Eigen::Vector3d(current_state.velocity) - pose_sample.orientation * pose_sample.angular_velocity.cross(imu_in_body.translation());
