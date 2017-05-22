@@ -66,6 +66,8 @@ namespace uwv_kalman_filters{
 
         virtual void xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample);
 
+        virtual void gps_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &gps_position_samples_sample);
+
         virtual void gps_samplesTransformerCallback(const base::Time &ts, const ::gps_base::Solution &gps_samples_sample);
 
         void predictionStep(const base::Time& sample_time);

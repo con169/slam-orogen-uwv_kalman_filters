@@ -175,6 +175,35 @@ void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts,
     }
 }
 
+void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time& ts, const base::samples::RigidBodyState& gps_position_samples_sample)
+{
+    // receive GPS to IMU transformation
+    Eigen::Affine3d gpsInIMU;
+    if (!_gps2imu.get(ts, gpsInIMU))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid gps-in-imu transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+
+    PoseUKF::State current_state;
+    if(pose_filter->getCurrentState(current_state))
+    {
+        PoseUKF::XY_Position measurement;
+        measurement.mu = gps_position_samples_sample.position.head<2>() - (current_state.orientation * gpsInIMU.translation()).head<2>();
+        measurement.cov = gps_position_samples_sample.cov_position.topLeftCorner(2,2);
+
+        try
+        {
+            pose_filter->integrateMeasurement(measurement);
+        }
+        catch(const std::runtime_error& e)
+        {
+            LOG_ERROR_S << "Failed to integrate 2D position measurement: " << e.what();
+        }
+    }
+}
+
 void PoseEstimator::gps_samplesTransformerCallback(const base::Time& ts, const gps_base::Solution& gps_samples_sample)
 {
     // receive GPS to IMU transformation
