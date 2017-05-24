@@ -165,8 +165,7 @@ void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts,
 
         try
         {
-            if(_integrate_markers.value())
-                pose_filter->integrateMeasurement(measurement);
+            pose_filter->integrateMeasurement(measurement);
         }
         catch(const std::runtime_error& e)
         {
