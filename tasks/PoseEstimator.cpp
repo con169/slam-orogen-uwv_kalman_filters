@@ -123,7 +123,7 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
     //length of measurement vector should be variable based on height and return quality
     int num_cells = water_current_samples_sample.readings.size();
     if(!base::isInfinity(ground_distance))
-        num_cells = std::min(num_cells, (int)floor(ground_distance));
+        num_cells = std::min(num_cells, (int)floor(ground_distance / water_profiling_cell_size));
     double min_corr;
     double cell_weighting;
     base::Vector3d velocity;
@@ -133,7 +133,7 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
     {
         min_corr = *std::min_element(water_current_samples_sample.readings[i].correlation, water_current_samples_sample.readings[i].correlation+4);
 
-        if (min_corr > 0.39 && Eigen::Map<const Eigen::Vector3f>(water_current_samples_sample.readings[i].velocity).allFinite())
+        if (min_corr > water_profiling_min_correlation && Eigen::Map<const Eigen::Vector3f>(water_current_samples_sample.readings[i].velocity).allFinite())
         {
             velocity << water_current_samples_sample.readings[i].velocity[0], water_current_samples_sample.readings[i].velocity[1], water_current_samples_sample.readings[i].velocity[2];
             velocity = dvlInIMU.rotation() * velocity;
@@ -142,7 +142,8 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
             measurement.mu = velocity.head<2>();
             measurement.cov = pow(0.2,2) * Eigen::Matrix<double,2,2>::Identity();
 
-            cell_weighting = (double(i)+1.0)/(double)water_current_samples_sample.readings.size();
+            cell_weighting = (double(i)*water_profiling_cell_size + 0.5*water_profiling_cell_size + water_profiling_first_cell_blank - dvlInIMU.translation().z()) /
+                             ((double)water_current_samples_sample.readings.size() * water_profiling_cell_size + water_profiling_first_cell_blank - dvlInIMU.translation().z());
 
             try
             {
@@ -484,6 +485,10 @@ bool PoseEstimator::configureHook()
     cov_velocity_unknown = (1./_dvl_velocity_samples_period.value()) * (_filter_config.value().max_velocity.cwiseAbs2()).asDiagonal();
 
     dynamic_model_min_depth = _filter_config.value().dynamic_model_min_depth;
+
+    water_profiling_min_correlation = _filter_config.value().water_velocity.minimum_correlation;
+    water_profiling_cell_size = _filter_config.value().water_velocity.cell_size;
+    water_profiling_first_cell_blank = _filter_config.value().water_velocity.first_cell_blank;
 
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());
