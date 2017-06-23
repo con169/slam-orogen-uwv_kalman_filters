@@ -55,9 +55,6 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
 void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &dvl_velocity_samples_sample)
 {
     // receive sensor to body transformation
-
-    //LOG_ERROR_S << "In dvl samples callback";	
-	
     Eigen::Affine3d dvlInIMU;
     if (!_dvl2imu.get(ts, dvlInIMU))
     {
@@ -101,12 +98,10 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
 void PoseEstimator::ground_distance_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &ground_distance_samples_sample)
 {
     ground_distance = ground_distance_samples_sample.position[2];
-    //LOG_ERROR_S << "ground_distance: " << ground_distance;
 }
 
-    void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &ts, const dvl_teledyne::CellReadings &water_current_samples_sample)
-    {
-    //LOG_ERROR_S << "In water current samples callback";
+void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &ts, const dvl_teledyne::CellReadings &water_current_samples_sample)
+{
     if (ground_distance > 500)
     {
         LOG_ERROR_S << "ground distance not initialized, not taking ADCP measurement";
@@ -146,9 +141,6 @@ void PoseEstimator::ground_distance_samplesTransformerCallback(const base::Time 
         for (int i=1;i<=last_cell;i++)
         {
             min_corr = *std::min_element(water_current_samples_sample.readings[i].correlation,water_current_samples_sample.readings[i].correlation+4);
-            
-            //if (i==2)
-            //LOG_ERROR_S << "min_corr: " << min_corr;
             
             if (min_corr > 0.39)
             {
@@ -433,13 +425,13 @@ bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double i
                                         filter_config.model_noise_parameters.quad_damping_instability.cwiseAbs2().asDiagonal();
 
     MTK::subblock(process_noise_cov, &FilterState::water_velocity) = (2. / (filter_config.water_velocity.tau * imu_delta_t)) *
-					pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
-					
+                                        pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
+
     MTK::subblock(process_noise_cov, &FilterState::water_velocity_below) = (2. / (filter_config.water_velocity.tau * imu_delta_t)) *
-					pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();					
-        
+                                        pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
+
     MTK::subblock(process_noise_cov, &FilterState::bias_adcp) = (2. / (filter_config.water_velocity.adcp_bias_tau * imu_delta_t)) *
-					pow(filter_config.water_velocity.adcp_bias_limits,2) * Eigen::Matrix2d::Identity();
+                                        pow(filter_config.water_velocity.adcp_bias_limits,2) * Eigen::Matrix2d::Identity();
 
     pose_filter->setProcessNoiseCovariance(process_noise_cov);
     
