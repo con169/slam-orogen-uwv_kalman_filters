@@ -97,16 +97,20 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
 
 void PoseEstimator::ground_distance_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &ground_distance_samples_sample)
 {
-    ground_distance = ground_distance_samples_sample.position[2];
+    if(base::isNaN(ground_distance_samples_sample.position[2]))
+        ground_distance = base::infinity<double>();
+    else
+        ground_distance = ground_distance_samples_sample.position[2];
 }
 
 void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &ts, const dvl_teledyne::CellReadings &water_current_samples_sample)
 {
-    if (ground_distance > 500)
+    if (base::isNaN(ground_distance))
     {
         LOG_ERROR_S << "ground distance not initialized, not taking ADCP measurement";
         return;
     }
+
     // receive sensor to body transformation
     Eigen::Affine3d dvlInIMU;
     if (!_dvl2imu.get(ts, dvlInIMU))
@@ -115,59 +119,43 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
         new_state = MISSING_TRANSFORMATION;
         return;
     }
-    PoseUKF::WaterVelocityMeasurement measurement;
-
-    base::Vector3d velocity; 
-
-    int last_cell = 1;
 
     //length of measurement vector should be variable based on height and return quality
-    if (base::isNaN(ground_distance))
-    {
-        last_cell = 6;
-        
-    }
-    else
-    {
-        last_cell = floor(ground_distance) - 1.0;
-        
-    }
-
+    int num_cells = water_current_samples_sample.readings.size();
+    if(!base::isInfinity(ground_distance))
+        num_cells = std::min(num_cells, (int)floor(ground_distance));
     double min_corr;
     double cell_weighting;
+    base::Vector3d velocity;
+    PoseUKF::WaterVelocityMeasurement measurement;
 
-    if (last_cell > 1)
+    for (int i=0;i<num_cells;i++)
     {
-        for (int i=1;i<=last_cell;i++)
+        min_corr = *std::min_element(water_current_samples_sample.readings[i].correlation, water_current_samples_sample.readings[i].correlation+4);
+
+        if (min_corr > 0.39 && Eigen::Map<const Eigen::Vector3f>(water_current_samples_sample.readings[i].velocity).allFinite())
         {
-            min_corr = *std::min_element(water_current_samples_sample.readings[i].correlation,water_current_samples_sample.readings[i].correlation+4);
-            
-            if (min_corr > 0.39)
+            velocity << water_current_samples_sample.readings[i].velocity[0], water_current_samples_sample.readings[i].velocity[1], water_current_samples_sample.readings[i].velocity[2];
+            velocity = dvlInIMU.rotation() * velocity;
+            velocity -= pose_filter->getRotationRate().cross(dvlInIMU.translation());
+
+            measurement.mu = velocity.head<2>();
+            measurement.cov = pow(0.2,2) * Eigen::Matrix<double,2,2>::Identity();
+
+            cell_weighting = (double(i)+1.0)/(double)water_current_samples_sample.readings.size();
+
+            try
             {
-                velocity << water_current_samples_sample.readings[i].velocity[0] , water_current_samples_sample.readings[i].velocity[1] , water_current_samples_sample.readings[i].velocity[2];
-                velocity = dvlInIMU.rotation() * velocity;
-                velocity -= pose_filter->getRotationRate().cross(dvlInIMU.translation());
-                
-                measurement.mu << velocity[0],velocity[1];
-                
-                measurement.cov = pow(0.2,2) * Eigen::Matrix<double,2,2>::Identity();
-                
-                cell_weighting = (double(i)+1.0)/10.0;
-                
-                try
-                {	
-                    if(_integrate_adcp.value())
+                if(_integrate_adcp.value())
                     pose_filter->integrateMeasurement(measurement,cell_weighting);
-                }
-                catch(const std::runtime_error& e)
-                {
-                    LOG_ERROR_S << "Failed to integrate ADCP measurement: " << e.what();
-                }
+            }
+            catch(const std::runtime_error& e)
+            {
+                LOG_ERROR_S << "Failed to integrate ADCP measurement: " << e.what();
             }
         }
     }
 }
-
 
 void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &imu_sensor_samples_sample)
 {
@@ -509,7 +497,7 @@ bool PoseEstimator::configureHook()
 
     last_state = PRE_OPERATIONAL;
     new_state = RUNNING;
-    ground_distance = 1000;
+    ground_distance = base::NaN<double>();
 
     return true;
 }
