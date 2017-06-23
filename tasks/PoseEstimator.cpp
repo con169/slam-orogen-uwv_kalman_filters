@@ -227,7 +227,7 @@ void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts,
     {
         // apply xy measurement
         PoseUKF::XY_Position measurement;
-        measurement.mu = nav_in_nwu_2d * (xy_position_samples_sample.position.head<2>() + (current_state.orientation * imu_in_body.translation()).head<2>());
+        measurement.mu = nav_in_nwu_2d * (xy_position_samples_sample.position.head<2>() + (nwu_in_nav.rotation() * current_state.orientation * imu_in_body.translation()).head<2>());
         measurement.cov = nav_in_nwu_2d.linear() * xy_position_samples_sample.cov_position.topLeftCorner(2,2) * nav_in_nwu_2d.linear().transpose();
 
         try
