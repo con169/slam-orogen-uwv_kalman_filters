@@ -7,6 +7,7 @@ using_library "uwv_kalman_filters"
 import_types_from "base"
 import_types_from "gps_base"
 import_types_from "uwv_dynamic_model"
+import_types_from "dvl_teledyne"
 import_types_from "uwv_kalman_filtersTypes.hpp"
 import_types_from "uwv_kalman_filters/PoseUKFConfig.hpp"
 
@@ -111,6 +112,15 @@ task_context "PoseEstimator" do
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
 
+	property( "integrate_gps", "bool", true )
+
+        property( "integrate_dvl", "bool", true )
+
+	property( "integrate_adcp", "bool", true )
+
+        property( "integrate_model", "bool", true )
+
+
 
     #******************************
     #******* Input Ports **********
@@ -143,8 +153,15 @@ task_context "PoseEstimator" do
     # geographic position in WGS 84
     input_port( "gps_samples", "/gps_base/Solution" ).
         needs_reliable_connection
-
-
+        
+    # water current samples    
+    input_port( "water_current_samples", "/dvl_teledyne/CellReadings").
+        needs_reliable_connection
+        
+    # ground distance samples
+    input_port( "ground_distance_samples", "/base/samples/RigidBodyState").
+        needs_reliable_connection   
+        
     #******************************
     #******* Output Ports *********
     #******************************
@@ -176,6 +193,8 @@ task_context "PoseEstimator" do
         align_port("xy_position_samples", 0.1)
         align_port("gps_position_samples", 1.0)
         align_port("gps_samples", 1.0)
+        align_port("water_current_samples", 0.25)
+        align_port("ground_distance_samples", 0.25)
         max_latency(0.2)
     end
 

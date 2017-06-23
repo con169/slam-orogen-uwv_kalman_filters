@@ -7,6 +7,7 @@
 #include <base-logging/Logging.hpp>
 #include "uwv_kalman_filtersTypes.hpp"
 
+
 using namespace uwv_kalman_filters;
 
 typedef PoseUKF::WState FilterState;
@@ -42,6 +43,7 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
     try
     {
         // apply linear body effort measurement
+	    if(_integrate_model.value())
         pose_filter->integrateMeasurement(measurement);
     }
     catch(const std::runtime_error& e)
@@ -53,6 +55,9 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
 void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &dvl_velocity_samples_sample)
 {
     // receive sensor to body transformation
+
+    //LOG_ERROR_S << "In dvl samples callback";	
+	
     Eigen::Affine3d dvlInIMU;
     if (!_dvl2imu.get(ts, dvlInIMU))
     {
@@ -73,6 +78,7 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
 
         try
         {
+	    if(_integrate_dvl.value())
             pose_filter->integrateMeasurement(measurement);
         }
         catch(const std::runtime_error& e)
@@ -86,9 +92,90 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
         PoseUKF::Velocity measurement;
         measurement.mu = Eigen::Vector3d::Zero();
         measurement.cov = cov_velocity_unknown;
+	
+	if(_integrate_dvl.value())
         pose_filter->integrateMeasurement(measurement);
     }
 }
+
+void PoseEstimator::ground_distance_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &ground_distance_samples_sample)
+{
+    ground_distance = ground_distance_samples_sample.position[2];
+    //LOG_ERROR_S << "ground_distance: " << ground_distance;
+}
+
+    void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &ts, const dvl_teledyne::CellReadings &water_current_samples_sample)
+    {
+    //LOG_ERROR_S << "In water current samples callback";
+    if (ground_distance > 500)
+    {
+        LOG_ERROR_S << "ground distance not initialized, not taking ADCP measurement";
+        return;
+    }
+    // receive sensor to body transformation
+    Eigen::Affine3d dvlInIMU;
+    if (!_dvl2imu.get(ts, dvlInIMU))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid dvl-in-imu (for ADCP measurement) transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+    PoseUKF::WaterVelocityMeasurement measurement;
+
+    base::Vector3d velocity; 
+
+    int last_cell = 1;
+
+    //length of measurement vector should be variable based on height and return quality
+    if (base::isNaN(ground_distance))
+    {
+        last_cell = 6;
+        
+    }
+    else
+    {
+        last_cell = floor(ground_distance) - 1.0;
+        
+    }
+
+    double min_corr;
+    double cell_weighting;
+
+    if (last_cell > 1)
+    {
+        for (int i=1;i<=last_cell;i++)
+        {
+            min_corr = *std::min_element(water_current_samples_sample.readings[i].correlation,water_current_samples_sample.readings[i].correlation+4);
+            
+            //if (i==2)
+            //LOG_ERROR_S << "min_corr: " << min_corr;
+            
+            if (min_corr > 0.39)
+            {
+                velocity << water_current_samples_sample.readings[i].velocity[0] , water_current_samples_sample.readings[i].velocity[1] , water_current_samples_sample.readings[i].velocity[2];
+                velocity = dvlInIMU.rotation() * velocity;
+                velocity -= pose_filter->getRotationRate().cross(dvlInIMU.translation());
+                
+                measurement.mu << velocity[0],velocity[1];
+                
+                measurement.cov = pow(0.2,2) * Eigen::Matrix<double,2,2>::Identity();
+                
+                cell_weighting = (double(i)+1.0)/10.0;
+                
+                try
+                {	
+                    if(_integrate_adcp.value())
+                    pose_filter->integrateMeasurement(measurement,cell_weighting);
+                }
+                catch(const std::runtime_error& e)
+                {
+                    LOG_ERROR_S << "Failed to integrate ADCP measurement: " << e.what();
+                }
+            }
+        }
+    }
+}
+
 
 void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &imu_sensor_samples_sample)
 {
@@ -194,7 +281,8 @@ void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time& ts
 
         try
         {
-            pose_filter->integrateMeasurement(measurement);
+	    if(_integrate_gps.value())
+            	pose_filter->integrateMeasurement(measurement);
         }
         catch(const std::runtime_error& e)
         {
@@ -226,7 +314,8 @@ void PoseEstimator::gps_samplesTransformerCallback(const base::Time& ts, const g
 
     try
     {
-        pose_filter->integrateMeasurement(measurement, gpsInIMU.translation());
+	if(_integrate_gps.value())
+        	pose_filter->integrateMeasurement(measurement, gpsInIMU.translation());
     }
     catch(const std::runtime_error& e)
     {
@@ -280,12 +369,15 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     initial_state.lin_damping.block(0,2,2,1) = model_parameters.damping_matrices[0].block(0,5,2,1);
     initial_state.quad_damping.block(0,0,2,2) = model_parameters.damping_matrices[1].block(0,0,2,2);
     initial_state.quad_damping.block(0,2,2,1) = model_parameters.damping_matrices[1].block(0,5,2,1);
+    initial_state.water_velocity = WaterVelocityType(Eigen::Vector2d::Zero());
+    initial_state.water_velocity_below = WaterVelocityType(Eigen::Vector2d::Zero());
+    initial_state.bias_adcp = WaterVelocityType(Eigen::Vector2d::Zero());
 
     PoseUKF::Covariance initial_state_cov = PoseUKF::Covariance::Zero();
     MTK::subblock(initial_state_cov, &FilterState::position) = nav_in_nwu.linear() * initial_rbs.cov_position * nav_in_nwu.linear().transpose();
     MTK::subblock(initial_state_cov, &FilterState::orientation) = nav_in_nwu.linear() * initial_rbs.cov_orientation * nav_in_nwu.linear().transpose();
     MTK::subblock(initial_state_cov, &FilterState::velocity) = Eigen::Matrix3d::Identity(); // velocity is unknown at the start
-    MTK::subblock(initial_state_cov, &FilterState::acceleration) = Eigen::Matrix3d::Identity(); // acceleration is unknown at the start
+    MTK::subblock(initial_state_cov, &FilterState::acceleration) = 10*Eigen::Matrix3d::Identity(); // acceleration is unknown at the start
     MTK::subblock(initial_state_cov, &FilterState::bias_gyro) = filter_config.rotation_rate.bias_instability.cwiseAbs2().asDiagonal();
     MTK::subblock(initial_state_cov, &FilterState::bias_acc) = filter_config.acceleration.bias_instability.cwiseAbs2().asDiagonal();
     Eigen::Matrix<double, 1, 1> gravity_var;
@@ -293,6 +385,9 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     MTK::subblock(initial_state_cov, &FilterState::gravity) = gravity_var;
     MTK::subblock(initial_state_cov, &FilterState::lin_damping) = filter_config.model_noise_parameters.lin_damping_instability.cwiseAbs2().asDiagonal();
     MTK::subblock(initial_state_cov, &FilterState::quad_damping) = filter_config.model_noise_parameters.quad_damping_instability.cwiseAbs2().asDiagonal();
+    MTK::subblock(initial_state_cov, &FilterState::water_velocity) = pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
+    MTK::subblock(initial_state_cov, &FilterState::water_velocity_below) = pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
+    MTK::subblock(initial_state_cov, &FilterState::bias_adcp) = pow(filter_config.water_velocity.adcp_bias_limits,2) * Eigen::Matrix2d::Identity();
 
     PoseUKF::PoseUKFParameter filter_parameter;
     filter_parameter.imu_in_body = imu_in_body.translation();
@@ -301,6 +396,10 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     filter_parameter.lin_damping_tau = filter_config.model_noise_parameters.lin_damping_tau;
     filter_parameter.quad_damping_tau = filter_config.model_noise_parameters.quad_damping_tau;
     filter_parameter.heading_converged_std = filter_config.heading_converged_std;
+    filter_parameter.water_velocity_tau = filter_config.water_velocity.tau;
+    filter_parameter.water_velocity_limits = filter_config.water_velocity.limits;
+    filter_parameter.water_velocity_scale = filter_config.water_velocity.scale;
+    filter_parameter.adcp_bias_tau = filter_config.water_velocity.adcp_bias_tau;
 
     pose_filter.reset(new PoseUKF(initial_state, initial_state_cov, filter_config.location,
                                   model_parameters, filter_parameter));
@@ -332,8 +431,18 @@ bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double i
                                         filter_config.model_noise_parameters.lin_damping_instability.cwiseAbs2().asDiagonal();
     MTK::subblock(process_noise_cov, &FilterState::quad_damping) = (2. / (filter_config.model_noise_parameters.quad_damping_tau * imu_delta_t)) *
                                         filter_config.model_noise_parameters.quad_damping_instability.cwiseAbs2().asDiagonal();
-    pose_filter->setProcessNoiseCovariance(process_noise_cov);
 
+    MTK::subblock(process_noise_cov, &FilterState::water_velocity) = (2. / (filter_config.water_velocity.tau * imu_delta_t)) *
+					pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
+					
+    MTK::subblock(process_noise_cov, &FilterState::water_velocity_below) = (2. / (filter_config.water_velocity.tau * imu_delta_t)) *
+					pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();					
+        
+    MTK::subblock(process_noise_cov, &FilterState::bias_adcp) = (2. / (filter_config.water_velocity.adcp_bias_tau * imu_delta_t)) *
+					pow(filter_config.water_velocity.adcp_bias_limits,2) * Eigen::Matrix2d::Identity();
+
+    pose_filter->setProcessNoiseCovariance(process_noise_cov);
+    
     return true;
 }
 
@@ -409,6 +518,7 @@ bool PoseEstimator::configureHook()
 
     last_state = PRE_OPERATIONAL;
     new_state = RUNNING;
+    ground_distance = 1000;
 
     return true;
 }
@@ -465,6 +575,12 @@ void PoseEstimator::updateHook()
         secondary_states.cov_lin_damping_diag = MTK::subblock(state_cov, &FilterState::lin_damping).diagonal();
         secondary_states.quad_damping = current_state.quad_damping.cwiseAbs();
         secondary_states.cov_quad_damping_diag = MTK::subblock(state_cov, &FilterState::quad_damping).diagonal();
+        secondary_states.water_velocity = current_state.water_velocity;
+        secondary_states.cov_water_velocity = MTK::subblock(state_cov, &FilterState::water_velocity).diagonal();
+        secondary_states.water_velocity_below = current_state.water_velocity_below;
+        secondary_states.cov_water_velocity_below = MTK::subblock(state_cov, &FilterState::water_velocity_below).diagonal();
+        secondary_states.bias_adcp = current_state.bias_adcp;
+        secondary_states.cov_bias_adcp = MTK::subblock(state_cov, &FilterState::bias_adcp).diagonal();
         secondary_states.time = current_sample_time;
         _secondary_states.write(secondary_states);
 

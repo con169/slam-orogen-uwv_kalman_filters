@@ -33,6 +33,13 @@ struct SecondaryStates
     base::VectorXd cov_lin_damping_diag;
     base::MatrixXd quad_damping;
     base::VectorXd cov_quad_damping_diag;
+    base::Vector2d water_velocity;
+    base::VectorXd cov_water_velocity;
+    base::Vector2d water_velocity_below;
+    base::VectorXd cov_water_velocity_below;
+    base::Vector2d bias_adcp;
+    base::VectorXd cov_bias_adcp;
+    
 };
 
 }

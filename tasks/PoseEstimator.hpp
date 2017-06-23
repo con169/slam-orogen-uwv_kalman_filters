@@ -10,6 +10,7 @@
 #include <base/samples/IMUSensors.hpp>
 #include <uwv_kalman_filters/PoseUKFConfig.hpp>
 #include <gps_base/BaseTypes.hpp>
+#include <dvl_teledyne/PD0Messages.hpp>
 
 namespace pose_estimation
 {
@@ -55,10 +56,15 @@ namespace uwv_kalman_filters{
         base::Time last_sample_time;
         States last_state;
         States new_state;
+        double ground_distance;
 
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample);
 
         virtual void dvl_velocity_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &dvl_velocity_samples_sample);
+
+        virtual void ground_distance_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &ground_distance_samples_sample);
+
+        virtual void water_current_samplesTransformerCallback(const base::Time &ts, const dvl_teledyne::CellReadings &water_current_samples_sample);
 
         virtual void imu_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &imu_sensor_samples_sample);
 
