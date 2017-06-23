@@ -387,7 +387,6 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     filter_parameter.gyro_bias_tau = filter_config.rotation_rate.bias_tau;
     filter_parameter.lin_damping_tau = filter_config.model_noise_parameters.lin_damping_tau;
     filter_parameter.quad_damping_tau = filter_config.model_noise_parameters.quad_damping_tau;
-    filter_parameter.heading_converged_std = filter_config.heading_converged_std;
     filter_parameter.water_velocity_tau = filter_config.water_velocity.tau;
     filter_parameter.water_velocity_limits = filter_config.water_velocity.limits;
     filter_parameter.water_velocity_scale = filter_config.water_velocity.scale;
