@@ -63,6 +63,9 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
         return;
     }
 
+    last_velocity_sample_time = dvl_velocity_samples_sample.time;
+    velocity_unknown = true;
+
     if(dvl_velocity_samples_sample.hasValidVelocity() && dvl_velocity_samples_sample.hasValidVelocityCovariance())
     {
         base::Vector3d velocity = dvlInIMU.rotation() * dvl_velocity_samples_sample.velocity;
@@ -75,23 +78,16 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
 
         try
         {
-	    if(_integrate_dvl.value())
-            pose_filter->integrateMeasurement(measurement);
+            if(_integrate_dvl.value())
+            {
+                pose_filter->integrateMeasurement(measurement);
+                velocity_unknown = false;
+            }
         }
         catch(const std::runtime_error& e)
         {
             LOG_ERROR_S << "Failed to integrate DVL measurement: " << e.what();
         }
-    }
-    else
-    {
-        // integrate zero velocity measurement with a sigma of max velocity
-        PoseUKF::Velocity measurement;
-        measurement.mu = Eigen::Vector3d::Zero();
-        measurement.cov = cov_velocity_unknown;
-	
-	if(_integrate_dvl.value())
-        pose_filter->integrateMeasurement(measurement);
     }
 }
 
@@ -190,6 +186,25 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
     {
         LOG_ERROR_S << "Failed to integrate acceleration measurement: " << e.what();
     }
+
+    // integrate zero velocity measurement with a sigma of max velocity if know velocity measurements are available
+    if(velocity_unknown)
+    {
+        try
+        {
+            PoseUKF::Velocity measurement;
+            measurement.mu = Eigen::Vector3d::Zero();
+            measurement.cov = cov_velocity_unknown;
+
+            pose_filter->integrateMeasurement(measurement);
+        }
+        catch(const std::runtime_error& e)
+        {
+            LOG_ERROR_S << "Failed to integrate velocity measurement: " << e.what();
+        }
+    }
+    else if((ts - last_velocity_sample_time).toSeconds() > (_dvl_velocity_samples_period.value() * 3.0))
+        velocity_unknown = true;
 }
 
 void PoseEstimator::pressure_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_sensor_samples_sample)
@@ -482,7 +497,7 @@ bool PoseEstimator::configureHook()
     cov_acceleration = acceleration_std.cwiseAbs2().asDiagonal();
     cov_body_efforts = (1./_body_efforts_period.value()) * _filter_config.value().model_noise_parameters.body_efforts_std.cwiseAbs2().asDiagonal();
     cov_body_efforts_unknown = (1./_body_efforts_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
-    cov_velocity_unknown = (1./_dvl_velocity_samples_period.value()) * (_filter_config.value().max_velocity.cwiseAbs2()).asDiagonal();
+    cov_velocity_unknown = (1./_imu_sensor_samples_period.value()) * (_filter_config.value().max_velocity.cwiseAbs2()).asDiagonal();
 
     dynamic_model_min_depth = _filter_config.value().dynamic_model_min_depth;
 
@@ -499,10 +514,12 @@ bool PoseEstimator::configureHook()
     streams_with_critical_alignment_failures = 0;
 
     last_sample_time = base::Time();
+    last_velocity_sample_time= base::Time();
 
     last_state = PRE_OPERATIONAL;
     new_state = RUNNING;
     ground_distance = base::NaN<double>();
+    velocity_unknown = false;
 
     return true;
 }

@@ -57,9 +57,11 @@ namespace uwv_kalman_filters{
         unsigned streams_with_alignment_failures;
         unsigned streams_with_critical_alignment_failures;
         base::Time last_sample_time;
+        base::Time last_velocity_sample_time;
         States last_state;
         States new_state;
         double ground_distance;
+        bool velocity_unknown;
 
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample);
 
