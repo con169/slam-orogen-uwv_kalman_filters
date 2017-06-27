@@ -206,3 +206,25 @@ task_context "PoseEstimator" do
 
     periodic 0.01
 end
+
+
+task_context "DVLBottomTrackingEvaluation" do
+
+    # Minimum correlation
+    property('min_correlation', 'double', 0.95)
+
+    # Minimum ground distance in m
+    property('min_ground_distance', 'double', 0.5)
+
+    # Maximum error velocity
+    property('max_error_velocity', 'double', 0.06)
+
+    # Standard deviation of the velocity messurements
+    property('sigma', 'double', 0.1)
+
+    input_port "bottom_tracking_samples", "/dvl_teledyne/BottomTracking"
+
+    output_port "velocity_samples", "/base/samples/RigidBodyState"
+
+    port_driven
+end
