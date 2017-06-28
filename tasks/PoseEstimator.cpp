@@ -485,16 +485,6 @@ bool PoseEstimator::configureHook()
     nav_in_nwu_2d = Eigen::Affine2d(Eigen::Rotation2Dd(nav_in_nwu_euler.x()));
     nav_in_nwu_2d.translation() = nwu_in_nav.translation().head<2>();
 
-    // initialize filter
-    if(!initializeFilter(_initial_state.value(), _filter_config.value(), _model_parameters.value(), imu_in_body, nav_in_nwu))
-        return false;
-
-    // set process noise
-    if(!setProcessNoise(_filter_config.value(), _imu_sensor_samples_period.value()))
-        return false;
-
-    pose_filter->setMaxTimeDelta(_max_time_delta.get());
-
     // compute measurement covariances
     double sqrt_delta_t = sqrt(_imu_sensor_samples_period.value());
     Eigen::Vector3d rotation_rate_std = (1./sqrt_delta_t) * _filter_config.value().rotation_rate.randomwalk;
@@ -512,6 +502,23 @@ bool PoseEstimator::configureHook()
     water_profiling_cell_size = _filter_config.value().water_velocity.cell_size;
     water_profiling_first_cell_blank = _filter_config.value().water_velocity.first_cell_blank;
 
+    return true;
+}
+bool PoseEstimator::startHook()
+{
+    if (! PoseEstimatorBase::startHook())
+        return false;
+
+    // initialize filter
+    if(!initializeFilter(_initial_state.value(), _filter_config.value(), _model_parameters.value(), imu_in_body, nav_in_nwu))
+        return false;
+
+    // set process noise
+    if(!setProcessNoise(_filter_config.value(), _imu_sensor_samples_period.value()))
+        return false;
+
+    pose_filter->setMaxTimeDelta(_max_time_delta.get());
+
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());
     verifier->setVerificationInterval(20.0);
@@ -520,20 +527,14 @@ bool PoseEstimator::configureHook()
     streams_with_alignment_failures = 0;
     streams_with_critical_alignment_failures = 0;
 
+    // reset state machine related members
     last_sample_time = base::Time();
-    last_velocity_sample_time= base::Time();
-
+    last_velocity_sample_time = base::Time();
     last_state = PRE_OPERATIONAL;
     new_state = RUNNING;
     ground_distance = base::NaN<double>();
     velocity_unknown = false;
 
-    return true;
-}
-bool PoseEstimator::startHook()
-{
-    if (! PoseEstimatorBase::startHook())
-        return false;
     return true;
 }
 void PoseEstimator::updateHook()
