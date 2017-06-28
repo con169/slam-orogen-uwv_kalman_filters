@@ -50,6 +50,7 @@ namespace uwv_kalman_filters{
         Eigen::Matrix3d cov_body_efforts;
         Eigen::Matrix3d cov_body_efforts_unknown;
         Eigen::Matrix3d cov_velocity_unknown;
+        Eigen::Matrix2d cov_water_velocity;
         double dynamic_model_min_depth;
         double water_profiling_min_correlation;
         double water_profiling_cell_size;

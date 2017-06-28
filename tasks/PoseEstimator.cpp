@@ -136,7 +136,7 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
             velocity -= pose_filter->getRotationRate().cross(dvlInIMU.translation());
 
             measurement.mu = velocity.head<2>();
-            measurement.cov = pow(0.2,2) * Eigen::Matrix<double,2,2>::Identity();
+            measurement.cov = cov_water_velocity;
 
             cell_weighting = (double(i)*water_profiling_cell_size + 0.5*water_profiling_cell_size + water_profiling_first_cell_blank - dvlInIMU.translation().z()) /
                              ((double)water_current_samples_sample.readings.size() * water_profiling_cell_size + water_profiling_first_cell_blank - dvlInIMU.translation().z());
@@ -504,6 +504,7 @@ bool PoseEstimator::configureHook()
     cov_body_efforts = (1./_body_efforts_period.value()) * _filter_config.value().model_noise_parameters.body_efforts_std.cwiseAbs2().asDiagonal();
     cov_body_efforts_unknown = (1./_body_efforts_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
     cov_velocity_unknown = (1./_imu_sensor_samples_period.value()) * (_filter_config.value().max_velocity.cwiseAbs2()).asDiagonal();
+    cov_water_velocity = (1./_water_current_samples_period.value()) * (_filter_config.value().water_velocity.measurement_std.cwiseAbs2()).asDiagonal();
 
     dynamic_model_min_depth = _filter_config.value().dynamic_model_min_depth;
 
