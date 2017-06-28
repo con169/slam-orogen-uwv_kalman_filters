@@ -154,13 +154,13 @@ task_context "PoseEstimator" do
     input_port( "gps_samples", "/gps_base/Solution" ).
         needs_reliable_connection
         
-    # water current samples    
+    # water current samples
     input_port( "water_current_samples", "/dvl_teledyne/CellReadings").
         needs_reliable_connection
         
-    # ground distance samples
+    # ground distance samples (This measurement is only used to identify the water current cells)
     input_port( "ground_distance_samples", "/base/samples/RigidBodyState").
-        needs_reliable_connection   
+        needs_reliable_connection
         
     #******************************
     #******* Output Ports *********
@@ -169,12 +169,12 @@ task_context "PoseEstimator" do
     # timestamped samples of the current estimated pose of the robot
     output_port( "pose_samples", "/base/samples/RigidBodyState" )
 
-    # Secondary filter states. E.g. acceleration and bias
+    # Secondary filter states. E.g. acceleration and biases
     output_port( "secondary_states", "/uwv_kalman_filters/SecondaryStates")
 
 
     #******************************
-    #** Aggregator Parameters ***** 
+    #** Aggregator Parameters *****
     #******************************
     transformer do
         transformation("imu", "body")

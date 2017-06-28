@@ -361,6 +361,8 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     Eigen::Matrix<double, 1, 1> gravity;
     gravity(0) = pose_estimation::GravitationalModel::WGS_84(filter_config.location.latitude, filter_config.location.altitude);
     initial_state.gravity = GravityType(gravity);
+    initial_state.inertia.block(0,0,2,2) = model_parameters.inertia_matrix.block(0,0,2,2);
+    initial_state.inertia.block(0,2,2,1) = model_parameters.inertia_matrix.block(0,5,2,1);
     initial_state.lin_damping.block(0,0,2,2) = model_parameters.damping_matrices[0].block(0,0,2,2);
     initial_state.lin_damping.block(0,2,2,1) = model_parameters.damping_matrices[0].block(0,5,2,1);
     initial_state.quad_damping.block(0,0,2,2) = model_parameters.damping_matrices[1].block(0,0,2,2);
@@ -379,6 +381,7 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     Eigen::Matrix<double, 1, 1> gravity_var;
     gravity_var << pow(0.05, 2.); // give the gravity model a sigma of 5 cm/s^2 at the start
     MTK::subblock(initial_state_cov, &FilterState::gravity) = gravity_var;
+    MTK::subblock(initial_state_cov, &FilterState::inertia) = filter_config.model_noise_parameters.inertia_instability.cwiseAbs2().asDiagonal();
     MTK::subblock(initial_state_cov, &FilterState::lin_damping) = filter_config.model_noise_parameters.lin_damping_instability.cwiseAbs2().asDiagonal();
     MTK::subblock(initial_state_cov, &FilterState::quad_damping) = filter_config.model_noise_parameters.quad_damping_instability.cwiseAbs2().asDiagonal();
     MTK::subblock(initial_state_cov, &FilterState::water_velocity) = pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
@@ -389,6 +392,7 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     filter_parameter.imu_in_body = imu_in_body.translation();
     filter_parameter.acc_bias_tau = filter_config.acceleration.bias_tau;
     filter_parameter.gyro_bias_tau = filter_config.rotation_rate.bias_tau;
+    filter_parameter.inertia_tau = filter_config.model_noise_parameters.inertia_tau;
     filter_parameter.lin_damping_tau = filter_config.model_noise_parameters.lin_damping_tau;
     filter_parameter.quad_damping_tau = filter_config.model_noise_parameters.quad_damping_tau;
     filter_parameter.water_velocity_tau = filter_config.water_velocity.tau;
@@ -422,6 +426,8 @@ bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double i
     Eigen::Matrix<double, 1, 1> gravity_noise;
     gravity_noise << 1.e-12; // add a tiny bit of noise only for numeric stability
     MTK::subblock(process_noise_cov, &FilterState::gravity) = gravity_noise;
+    MTK::subblock(process_noise_cov, &FilterState::inertia) = (2. / (filter_config.model_noise_parameters.inertia_tau * imu_delta_t)) *
+                                        filter_config.model_noise_parameters.inertia_instability.cwiseAbs2().asDiagonal();
     MTK::subblock(process_noise_cov, &FilterState::lin_damping) = (2. / (filter_config.model_noise_parameters.lin_damping_tau * imu_delta_t)) *
                                         filter_config.model_noise_parameters.lin_damping_instability.cwiseAbs2().asDiagonal();
     MTK::subblock(process_noise_cov, &FilterState::quad_damping) = (2. / (filter_config.model_noise_parameters.quad_damping_tau * imu_delta_t)) *
@@ -572,16 +578,18 @@ void PoseEstimator::updateHook()
         secondary_states.cov_bias_acc = MTK::subblock(state_cov, &FilterState::bias_acc);
         secondary_states.gravity = current_state.gravity(0);
         secondary_states.var_gravity = MTK::subblock(state_cov, &FilterState::gravity)(0);
+        secondary_states.inertia = current_state.inertia.cwiseAbs();
+        secondary_states.cov_inertia_diag = MTK::subblock(state_cov, &FilterState::inertia).diagonal();
         secondary_states.lin_damping = current_state.lin_damping.cwiseAbs();
         secondary_states.cov_lin_damping_diag = MTK::subblock(state_cov, &FilterState::lin_damping).diagonal();
         secondary_states.quad_damping = current_state.quad_damping.cwiseAbs();
         secondary_states.cov_quad_damping_diag = MTK::subblock(state_cov, &FilterState::quad_damping).diagonal();
         secondary_states.water_velocity = current_state.water_velocity;
-        secondary_states.cov_water_velocity = MTK::subblock(state_cov, &FilterState::water_velocity).diagonal();
+        secondary_states.cov_water_velocity = MTK::subblock(state_cov, &FilterState::water_velocity);
         secondary_states.water_velocity_below = current_state.water_velocity_below;
-        secondary_states.cov_water_velocity_below = MTK::subblock(state_cov, &FilterState::water_velocity_below).diagonal();
+        secondary_states.cov_water_velocity_below = MTK::subblock(state_cov, &FilterState::water_velocity_below);
         secondary_states.bias_adcp = current_state.bias_adcp;
-        secondary_states.cov_bias_adcp = MTK::subblock(state_cov, &FilterState::bias_adcp).diagonal();
+        secondary_states.cov_bias_adcp = MTK::subblock(state_cov, &FilterState::bias_adcp);
         secondary_states.time = current_sample_time;
         _secondary_states.write(secondary_states);
 
