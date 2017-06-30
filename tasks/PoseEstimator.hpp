@@ -49,7 +49,7 @@ namespace uwv_kalman_filters{
         Eigen::Matrix3d cov_acceleration;
         Eigen::Matrix3d cov_body_efforts;
         Eigen::Matrix3d cov_body_efforts_unknown;
-        Eigen::Matrix3d cov_velocity_unknown;
+        Eigen::Matrix3d cov_body_efforts_unavailable;
         Eigen::Matrix2d cov_water_velocity;
         double dynamic_model_min_depth;
         double water_profiling_min_correlation;
@@ -58,11 +58,11 @@ namespace uwv_kalman_filters{
         unsigned streams_with_alignment_failures;
         unsigned streams_with_critical_alignment_failures;
         base::Time last_sample_time;
-        base::Time last_velocity_sample_time;
+        base::Time last_efforts_sample_time;
         States last_state;
         States new_state;
         double ground_distance;
-        bool velocity_unknown;
+        bool body_efforts_unknown;
 
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample);
 

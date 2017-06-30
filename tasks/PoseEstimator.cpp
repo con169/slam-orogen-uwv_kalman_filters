@@ -33,6 +33,9 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
     measurement.mu = body_efforts_sample.linear;
     measurement.cov = cov_body_efforts;
 
+    last_efforts_sample_time = ts;
+    body_efforts_unknown = true;
+
     PoseUKF::State current_state;
     if(pose_filter->getCurrentState(current_state) && current_state.position.z() > dynamic_model_min_depth)
     {
@@ -44,7 +47,10 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
     {
         // apply linear body effort measurement
 	    if(_integrate_model.value())
-        pose_filter->integrateMeasurement(measurement);
+        {
+            pose_filter->integrateMeasurement(measurement);
+            body_efforts_unknown = false;
+        }
     }
     catch(const std::runtime_error& e)
     {
@@ -63,9 +69,6 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
         return;
     }
 
-    last_velocity_sample_time = dvl_velocity_samples_sample.time;
-    velocity_unknown = true;
-
     if(dvl_velocity_samples_sample.hasValidVelocity() && dvl_velocity_samples_sample.hasValidVelocityCovariance())
     {
         base::Vector3d velocity = dvlInIMU.rotation() * dvl_velocity_samples_sample.velocity;
@@ -81,7 +84,6 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
             if(_integrate_dvl.value())
             {
                 pose_filter->integrateMeasurement(measurement);
-                velocity_unknown = false;
             }
         }
         catch(const std::runtime_error& e)
@@ -187,24 +189,24 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
         LOG_ERROR_S << "Failed to integrate acceleration measurement: " << e.what();
     }
 
-    // integrate zero velocity measurement with a sigma of max velocity if know velocity measurements are available
-    if(velocity_unknown)
+    // integrate zero effort measurement with a sigma of max effort in order to constrain the velocity
+    if(body_efforts_unknown)
     {
         try
         {
-            PoseUKF::Velocity measurement;
+            PoseUKF::BodyEffortsMeasurement measurement;
             measurement.mu = Eigen::Vector3d::Zero();
-            measurement.cov = cov_velocity_unknown;
+            measurement.cov = cov_body_efforts_unavailable;
 
-            pose_filter->integrateMeasurement(measurement);
+            pose_filter->integrateMeasurement(measurement, true);
         }
         catch(const std::runtime_error& e)
         {
-            LOG_ERROR_S << "Failed to integrate velocity measurement: " << e.what();
+            LOG_ERROR_S << "Failed to integrate zero effort measurement: " << e.what();
         }
     }
-    else if((ts - last_velocity_sample_time).toSeconds() > (_dvl_velocity_samples_period.value() * 3.0))
-        velocity_unknown = true;
+    else if((ts - last_efforts_sample_time).toSeconds() > (_body_efforts_period.value() * 3.0))
+        body_efforts_unknown = true;
 }
 
 void PoseEstimator::pressure_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_sensor_samples_sample)
@@ -493,7 +495,7 @@ bool PoseEstimator::configureHook()
     cov_acceleration = acceleration_std.cwiseAbs2().asDiagonal();
     cov_body_efforts = (1./_body_efforts_period.value()) * _filter_config.value().model_noise_parameters.body_efforts_std.cwiseAbs2().asDiagonal();
     cov_body_efforts_unknown = (1./_body_efforts_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
-    cov_velocity_unknown = (1./_imu_sensor_samples_period.value()) * (_filter_config.value().max_velocity.cwiseAbs2()).asDiagonal();
+    cov_body_efforts_unavailable = (1./_imu_sensor_samples_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
     cov_water_velocity = (1./_water_current_samples_period.value()) * (_filter_config.value().water_velocity.measurement_std.cwiseAbs2()).asDiagonal();
 
     dynamic_model_min_depth = _filter_config.value().dynamic_model_min_depth;
@@ -529,11 +531,11 @@ bool PoseEstimator::startHook()
 
     // reset state machine related members
     last_sample_time = base::Time();
-    last_velocity_sample_time = base::Time();
+    last_efforts_sample_time = base::Time();
     last_state = PRE_OPERATIONAL;
     new_state = RUNNING;
     ground_distance = base::NaN<double>();
-    velocity_unknown = false;
+    body_efforts_unknown = false;
 
     return true;
 }
