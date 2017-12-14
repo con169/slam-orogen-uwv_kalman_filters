@@ -213,21 +213,25 @@ void PoseEstimator::pressure_sensor_samplesTransformerCallback(const base::Time 
         return;
     }
 
-    Eigen::Matrix<double, 1, 1> altitude;
-    altitude << pressure_sensor_samples_sample.position.z() - pressureSensorInIMU.translation().z();
-
-    // apply altitude measurement
-    PoseUKF::Z_Position measurement;
-    measurement.mu = altitude;
-    measurement.cov = pressure_sensor_samples_sample.cov_position.bottomRightCorner(1,1);
-
-    try
+    PoseUKF::State current_state;
+    if(pose_filter->getCurrentState(current_state))
     {
-        pose_filter->integrateMeasurement(measurement);
-    }
-    catch(const std::runtime_error& e)
-    {
-        LOG_ERROR_S << "Failed to integrate altitude measurement: " << e.what();
+        Eigen::Matrix<double, 1, 1> altitude;
+        altitude << pressure_sensor_samples_sample.position.z() - (current_state.orientation * pressureSensorInIMU.translation()).z();
+
+        // apply altitude measurement
+        PoseUKF::Z_Position measurement;
+        measurement.mu = altitude;
+        measurement.cov = pressure_sensor_samples_sample.cov_position.bottomRightCorner(1,1);
+
+        try
+        {
+            pose_filter->integrateMeasurement(measurement);
+        }
+        catch(const std::runtime_error& e)
+        {
+            LOG_ERROR_S << "Failed to integrate altitude measurement: " << e.what();
+        }
     }
 }
 
