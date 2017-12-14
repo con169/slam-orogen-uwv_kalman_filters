@@ -30,7 +30,7 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
 {
     // create effort measurement
     PoseUKF::BodyEffortsMeasurement measurement;
-    measurement.mu = body_efforts_sample.linear;
+    measurement.mu << body_efforts_sample.linear, body_efforts_sample.angular;
     measurement.cov = cov_body_efforts;
 
     last_efforts_sample_time = ts;
@@ -195,7 +195,7 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
         try
         {
             PoseUKF::BodyEffortsMeasurement measurement;
-            measurement.mu = Eigen::Vector3d::Zero();
+            measurement.mu = Eigen::Matrix<double, 6 ,1>::Zero();
             measurement.cov = cov_body_efforts_unavailable;
 
             pose_filter->integrateMeasurement(measurement, true);
