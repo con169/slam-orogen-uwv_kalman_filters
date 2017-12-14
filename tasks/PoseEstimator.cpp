@@ -46,11 +46,8 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
     try
     {
         // apply linear body effort measurement
-	    if(_integrate_model.value())
-        {
-            pose_filter->integrateMeasurement(measurement);
-            body_efforts_unknown = false;
-        }
+        pose_filter->integrateMeasurement(measurement);
+        body_efforts_unknown = false;
     }
     catch(const std::runtime_error& e)
     {
@@ -81,10 +78,7 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
 
         try
         {
-            if(_integrate_dvl.value())
-            {
-                pose_filter->integrateMeasurement(measurement);
-            }
+            pose_filter->integrateMeasurement(measurement);
         }
         catch(const std::runtime_error& e)
         {
@@ -145,8 +139,7 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
 
             try
             {
-                if(_integrate_adcp.value())
-                    pose_filter->integrateMeasurement(measurement,cell_weighting);
+                pose_filter->integrateMeasurement(measurement,cell_weighting);
             }
             catch(const std::runtime_error& e)
             {
@@ -279,8 +272,7 @@ void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time& ts
 
         try
         {
-	    if(_integrate_gps.value())
-            	pose_filter->integrateMeasurement(measurement);
+            pose_filter->integrateMeasurement(measurement);
         }
         catch(const std::runtime_error& e)
         {
@@ -312,8 +304,7 @@ void PoseEstimator::gps_samplesTransformerCallback(const base::Time& ts, const g
 
     try
     {
-	if(_integrate_gps.value())
-        	pose_filter->integrateMeasurement(measurement, gpsInIMU.translation());
+        pose_filter->integrateMeasurement(measurement, gpsInIMU.translation());
     }
     catch(const std::runtime_error& e)
     {

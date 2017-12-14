@@ -112,15 +112,6 @@ task_context "PoseEstimator" do
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
 
-	property( "integrate_gps", "bool", true )
-
-        property( "integrate_dvl", "bool", true )
-
-	property( "integrate_adcp", "bool", true )
-
-        property( "integrate_model", "bool", true )
-
-
 
     #******************************
     #******* Input Ports **********
