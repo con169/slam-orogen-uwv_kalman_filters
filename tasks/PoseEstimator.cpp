@@ -132,7 +132,7 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
             velocity -= pose_filter->getRotationRate().cross(dvlInIMU.translation());
 
             measurement.mu = velocity.head<2>();
-            measurement.cov = cov_water_velocity;
+            measurement.cov = (dvlInIMU.rotation() * cov_water_velocity * dvlInIMU.rotation().transpose()).topLeftCorner(2,2);
 
             cell_weighting = (double(i)*water_profiling_cell_size + 0.5*water_profiling_cell_size + water_profiling_first_cell_blank - dvlInIMU.translation().z()) /
                              ((double)water_current_samples_sample.readings.size() * water_profiling_cell_size + water_profiling_first_cell_blank - dvlInIMU.translation().z());
