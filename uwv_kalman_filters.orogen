@@ -91,7 +91,8 @@ end
 # The filter must receive accelerations and angular velocities from an inertial measurement unit,
 # all other inputs are recommended but optional.
 # The output of the filter is the estimated pose and velocities of the body in the navigation frame.
-# Note that the internal state of the filter is the IMU in a NWU aligned navigation frame.
+# Note that the internal state of the filter is the body-aligned IMU in the NWU-aligned navigation frame.
+# (Body-aligned IMU frame means in the position of the IMU but with the orientation of the body frame)
 #
 task_context "PoseEstimator" do
     needs_configuration
@@ -169,9 +170,9 @@ task_context "PoseEstimator" do
     #******************************
     transformer do
         transformation("imu", "body")
-        transformation("dvl", "imu")
-        transformation("pressure_sensor", "imu")
-        transformation("gps", "imu")
+        transformation("dvl", "body")
+        transformation("pressure_sensor", "body")
+        transformation("gps", "body")
         # Allows to define a navigation frame in the NWU aligned navigation frame.
         # The NWU aligned navigation frame is the internal navigation frame of the filter.
         # The origin of the frame is defined by the geographic position in the filter config.

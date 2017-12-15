@@ -59,12 +59,13 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
 {
     // receive sensor to body transformation
     Eigen::Affine3d dvlInIMU;
-    if (!_dvl2imu.get(ts, dvlInIMU))
+    if (!_dvl2body.get(ts, dvlInIMU))
     {
-        LOG_ERROR_S << "skip, couldn't receive a valid dvl-in-imu transformation sample!";
+        LOG_ERROR_S << "skip, couldn't receive a valid dvl-in-body transformation sample!";
         new_state = MISSING_TRANSFORMATION;
         return;
     }
+    dvlInIMU.translation() -= imu_in_body.translation();
 
     if(dvl_velocity_samples_sample.hasValidVelocity() && dvl_velocity_samples_sample.hasValidVelocityCovariance())
     {
@@ -105,12 +106,13 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
 
     // receive sensor to body transformation
     Eigen::Affine3d dvlInIMU;
-    if (!_dvl2imu.get(ts, dvlInIMU))
+    if (!_dvl2body.get(ts, dvlInIMU))
     {
-        LOG_ERROR_S << "skip, couldn't receive a valid dvl-in-imu (for ADCP measurement) transformation sample!";
+        LOG_ERROR_S << "skip, couldn't receive a valid dvl-in-body (for ADCP measurement) transformation sample!";
         new_state = MISSING_TRANSFORMATION;
         return;
     }
+    dvlInIMU.translation() -= imu_in_body.translation();
 
     //length of measurement vector should be variable based on height and return quality
     int num_cells = water_current_samples_sample.readings.size();
@@ -156,7 +158,7 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
 
     // apply new gyro measurement
     PoseUKF::RotationRate rotation_rate;
-    rotation_rate.mu = imu_sensor_samples_sample.gyro;
+    rotation_rate.mu = imu_in_body.rotation() * imu_sensor_samples_sample.gyro;
     rotation_rate.cov = cov_angular_velocity;
 
     try
@@ -170,7 +172,7 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
 
     // apply new acceleration measurement
     PoseUKF::Acceleration acceleration;
-    acceleration.mu = imu_sensor_samples_sample.acc;
+    acceleration.mu = imu_in_body.rotation() * imu_sensor_samples_sample.acc;
     acceleration.cov = cov_acceleration;
 
     try
@@ -206,12 +208,13 @@ void PoseEstimator::pressure_sensor_samplesTransformerCallback(const base::Time 
 {
     // receive sensor to IMU transformation
     Eigen::Affine3d pressureSensorInIMU;
-    if (!_pressure_sensor2imu.get(ts, pressureSensorInIMU))
+    if (!_pressure_sensor2body.get(ts, pressureSensorInIMU))
     {
-        LOG_ERROR_S << "skip, couldn't receive a valid pressure-sensor-in-imu transformation sample!";
+        LOG_ERROR_S << "skip, couldn't receive a valid pressure-sensor-in-body transformation sample!";
         new_state = MISSING_TRANSFORMATION;
         return;
     }
+    pressureSensorInIMU.translation() -= imu_in_body.translation();
 
     PoseUKF::State current_state;
     if(pose_filter->getCurrentState(current_state))
@@ -260,12 +263,13 @@ void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time& ts
 {
     // receive GPS to IMU transformation
     Eigen::Affine3d gpsInIMU;
-    if (!_gps2imu.get(ts, gpsInIMU))
+    if (!_gps2body.get(ts, gpsInIMU))
     {
-        LOG_ERROR_S << "skip, couldn't receive a valid gps-in-imu transformation sample!";
+        LOG_ERROR_S << "skip, couldn't receive a valid gps-in-body transformation sample!";
         new_state = MISSING_TRANSFORMATION;
         return;
     }
+    gpsInIMU.translation() -= imu_in_body.translation();
 
     PoseUKF::State current_state;
     if(pose_filter->getCurrentState(current_state))
@@ -289,12 +293,13 @@ void PoseEstimator::gps_samplesTransformerCallback(const base::Time& ts, const g
 {
     // receive GPS to IMU transformation
     Eigen::Affine3d gpsInIMU;
-    if (!_gps2imu.get(ts, gpsInIMU))
+    if (!_gps2body.get(ts, gpsInIMU))
     {
-        LOG_ERROR_S << "skip, couldn't receive a valid gps-in-imu transformation sample!";
+        LOG_ERROR_S << "skip, couldn't receive a valid gps-in-body transformation sample!";
         new_state = MISSING_TRANSFORMATION;
         return;
     }
+    gpsInIMU.translation() -= imu_in_body.translation();
 
     // assuming longitude and latitude in gps_base::Solution are in degree
     double latitude = base::Angle::deg2Rad(gps_samples_sample.latitude);
@@ -353,8 +358,8 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     initial_state.orientation = RotationType(MTK::SO3<double>(nav_in_nwu.rotation() * initial_rbs.orientation));
     initial_state.velocity = VelocityType(Eigen::Vector3d::Zero());
     initial_state.acceleration = AccelerationType(Eigen::Vector3d::Zero());
-    initial_state.bias_gyro = BiasType(filter_config.rotation_rate.bias_offset);
-    initial_state.bias_acc = BiasType(filter_config.acceleration.bias_offset);
+    initial_state.bias_gyro = BiasType(imu_in_body.rotation() * filter_config.rotation_rate.bias_offset);
+    initial_state.bias_acc = BiasType(imu_in_body.rotation() * filter_config.acceleration.bias_offset);
     Eigen::Matrix<double, 1, 1> gravity;
     gravity(0) = pose_estimation::GravitationalModel::WGS_84(filter_config.location.latitude, filter_config.location.altitude);
     initial_state.gravity = GravityType(gravity);
@@ -373,8 +378,8 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     MTK::subblock(initial_state_cov, &FilterState::orientation) = nav_in_nwu.linear() * initial_rbs.cov_orientation * nav_in_nwu.linear().transpose();
     MTK::subblock(initial_state_cov, &FilterState::velocity) = Eigen::Matrix3d::Identity(); // velocity is unknown at the start
     MTK::subblock(initial_state_cov, &FilterState::acceleration) = 10*Eigen::Matrix3d::Identity(); // acceleration is unknown at the start
-    MTK::subblock(initial_state_cov, &FilterState::bias_gyro) = filter_config.rotation_rate.bias_instability.cwiseAbs2().asDiagonal();
-    MTK::subblock(initial_state_cov, &FilterState::bias_acc) = filter_config.acceleration.bias_instability.cwiseAbs2().asDiagonal();
+    MTK::subblock(initial_state_cov, &FilterState::bias_gyro) = imu_in_body.rotation() * filter_config.rotation_rate.bias_instability.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
+    MTK::subblock(initial_state_cov, &FilterState::bias_acc) = imu_in_body.rotation() * filter_config.acceleration.bias_instability.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
     Eigen::Matrix<double, 1, 1> gravity_var;
     gravity_var << pow(0.05, 2.); // give the gravity model a sigma of 5 cm/s^2 at the start
     MTK::subblock(initial_state_cov, &FilterState::gravity) = gravity_var;
@@ -402,7 +407,7 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     return true;
 }
 
-bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double imu_delta_t)
+bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double imu_delta_t, const Eigen::Affine3d& imu_in_body)
 {
     PoseUKF::Covariance process_noise_cov = PoseUKF::Covariance::Zero();
     // Euler integration error position: (1/6/4 * jerk_max * dt^3)^2
@@ -415,11 +420,11 @@ bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double i
     // Euler integration error acceleration: (1/4 * jerk_max * dt)^2
     MTK::subblock(process_noise_cov, &FilterState::acceleration) = (0.25 * filter_config.max_jerk).cwiseAbs2().asDiagonal();
     LOG_DEBUG_S << "(sigma/delta_t)^2 acceleration:\n" << MTK::subblock(process_noise_cov, &FilterState::acceleration);
-    MTK::subblock(process_noise_cov, &FilterState::orientation) = filter_config.rotation_rate.randomwalk.cwiseAbs2().asDiagonal();
-    MTK::subblock(process_noise_cov, &FilterState::bias_gyro) = (2. / (filter_config.rotation_rate.bias_tau * imu_delta_t)) *
-                                        filter_config.rotation_rate.bias_instability.cwiseAbs2().asDiagonal();
-    MTK::subblock(process_noise_cov, &FilterState::bias_acc) = (2. / (filter_config.acceleration.bias_tau * imu_delta_t)) *
-                                        filter_config.acceleration.bias_instability.cwiseAbs2().asDiagonal();
+    MTK::subblock(process_noise_cov, &FilterState::orientation) = imu_in_body.rotation() * filter_config.rotation_rate.randomwalk.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
+    MTK::subblock(process_noise_cov, &FilterState::bias_gyro) = imu_in_body.rotation() * (2. / (filter_config.rotation_rate.bias_tau * imu_delta_t)) *
+                                        filter_config.rotation_rate.bias_instability.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
+    MTK::subblock(process_noise_cov, &FilterState::bias_acc) = imu_in_body.rotation() * (2. / (filter_config.acceleration.bias_tau * imu_delta_t)) *
+                                        filter_config.acceleration.bias_instability.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
     Eigen::Matrix<double, 1, 1> gravity_noise;
     gravity_noise << 1.e-12; // add a tiny bit of noise only for numeric stability
     MTK::subblock(process_noise_cov, &FilterState::gravity) = gravity_noise;
@@ -459,12 +464,6 @@ bool PoseEstimator::configureHook()
         LOG_ERROR_S << "Failed to get IMU pose in body frame. Note that this has to be a static transformation!";
         return false;
     }
-    if(!imu_in_body.linear().isApprox(Eigen::Matrix3d::Identity()))
-    {
-        LOG_ERROR_S << "The IMU frame can't be rotated with respect to the body frame!";
-        LOG_ERROR_S << "This is currently not supported by the filter.";
-        return false;
-    }
 
     // get navigation in NWU aligned frame
     if(!_navigation2navigation_nwu.get(base::Time(), nav_in_nwu))
@@ -486,8 +485,8 @@ bool PoseEstimator::configureHook()
     double sqrt_delta_t = sqrt(_imu_sensor_samples_period.value());
     Eigen::Vector3d rotation_rate_std = (1./sqrt_delta_t) * _filter_config.value().rotation_rate.randomwalk;
     Eigen::Vector3d acceleration_std = (1./sqrt_delta_t) * _filter_config.value().acceleration.randomwalk;
-    cov_angular_velocity = rotation_rate_std.cwiseAbs2().asDiagonal();
-    cov_acceleration = acceleration_std.cwiseAbs2().asDiagonal();
+    cov_angular_velocity = imu_in_body.rotation() * rotation_rate_std.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
+    cov_acceleration = imu_in_body.rotation() * acceleration_std.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
     cov_body_efforts = (1./_body_efforts_period.value()) * _filter_config.value().model_noise_parameters.body_efforts_std.cwiseAbs2().asDiagonal();
     cov_body_efforts_unknown = (1./_body_efforts_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
     cov_body_efforts_unavailable = (1./_imu_sensor_samples_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
@@ -511,7 +510,7 @@ bool PoseEstimator::startHook()
         return false;
 
     // set process noise
-    if(!setProcessNoise(_filter_config.value(), _imu_sensor_samples_period.value()))
+    if(!setProcessNoise(_filter_config.value(), _imu_sensor_samples_period.value(), imu_in_body))
         return false;
 
     pose_filter->setMaxTimeDelta(_max_time_delta.get());
