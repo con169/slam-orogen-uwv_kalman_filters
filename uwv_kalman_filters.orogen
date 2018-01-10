@@ -1,11 +1,15 @@
 name "uwv_kalman_filters"
 version "0.1"
 
+using_library "base-logging"
 using_library "uwv_kalman_filters"
 
 import_types_from "base"
+import_types_from "gps_base"
 import_types_from "uwv_dynamic_model"
+import_types_from "dvl_teledyne"
 import_types_from "uwv_kalman_filtersTypes.hpp"
+import_types_from "uwv_kalman_filters/PoseUKFConfig.hpp"
 
 
 task_context "VelocityProvider" do
@@ -83,3 +87,136 @@ task_context "VelocityProvider" do
     periodic 0.01
 end
 
+#
+# The filter must receive accelerations and angular velocities from an inertial measurement unit,
+# all other inputs are recommended but optional.
+# The output of the filter is the estimated pose and velocities of the body in the navigation frame.
+# Note that the internal state of the filter is the body-aligned IMU in the NWU-aligned navigation frame.
+# (Body-aligned IMU frame means in the position of the IMU but with the orientation of the body frame)
+#
+task_context "PoseEstimator" do
+    needs_configuration
+
+    #******************************
+    #***** Filter Properties ******
+    #******************************
+
+    # The initial pose in the navigation frame. Position, orientation and covariaces must be valid.
+    property( "initial_state", "/base/samples/RigidBodyState" )
+
+    # Filter configuration
+    property( "filter_config", "/uwv_kalman_filters/PoseUKFConfig" )
+
+    # Parameters of the motion model.
+    property( "model_parameters", "/uwv_dynamic_model/UWVParameters" )
+
+    # max time delta between to successive measurements in seconds
+    property( "max_time_delta", "double", 2.0 )
+
+
+    #******************************
+    #******* Input Ports **********
+    #******************************
+
+    # Thrusters' status samples expressed in the body frame
+    input_port("body_efforts", "/base/commands/LinearAngular6DCommand").
+        needs_reliable_connection
+
+    # Velocity samples from a DVL, containing the velocity.
+    input_port( "dvl_velocity_samples", "/base/samples/RigidBodyState" ).
+        needs_reliable_connection
+
+    # IMU acceleration and angular velocities samples.
+    input_port('imu_sensor_samples', '/base/samples/IMUSensors').
+        needs_reliable_connection
+
+    # Pressure sensor samples. Altitude in navigation frame.
+    input_port('pressure_sensor_samples', '/base/samples/RigidBodyState').
+        needs_reliable_connection
+
+    # Position samples from an absolut source (e.g. GPS or USBL) expressed in the navigation frame
+    input_port( "xy_position_samples", "/base/samples/RigidBodyState" ).
+        needs_reliable_connection
+
+    # projected position
+    input_port( "gps_position_samples", "/base/samples/RigidBodyState" ).
+        needs_reliable_connection
+
+    # geographic position in WGS 84
+    input_port( "gps_samples", "/gps_base/Solution" ).
+        needs_reliable_connection
+        
+    # water current samples
+    input_port( "water_current_samples", "/dvl_teledyne/CellReadings").
+        needs_reliable_connection
+        
+    # ground distance samples (This measurement is only used to identify the water current cells)
+    input_port( "ground_distance_samples", "/base/samples/RigidBodyState").
+        needs_reliable_connection
+        
+    #******************************
+    #******* Output Ports *********
+    #******************************
+
+    # timestamped samples of the current estimated pose of the robot
+    output_port( "pose_samples", "/base/samples/RigidBodyState" )
+
+    # Secondary filter states. E.g. acceleration and biases
+    output_port( "secondary_states", "/uwv_kalman_filters/SecondaryStates")
+
+
+    #******************************
+    #** Aggregator Parameters *****
+    #******************************
+    transformer do
+        transformation("imu", "body")
+        transformation("dvl", "body")
+        transformation("pressure_sensor", "body")
+        transformation("gps", "body")
+        # Allows to define a navigation frame in the NWU aligned navigation frame.
+        # The NWU aligned navigation frame is the internal navigation frame of the filter.
+        # The origin of the frame is defined by the geographic position in the filter config.
+        transformation("navigation", "navigation_nwu")
+
+        align_port("body_efforts", 0.01)
+        align_port("dvl_velocity_samples", 0.2)
+        align_port("imu_sensor_samples", 0.01)
+        align_port("pressure_sensor_samples", 0.01)
+        align_port("xy_position_samples", 0.1)
+        align_port("gps_position_samples", 1.0)
+        align_port("gps_samples", 1.0)
+        align_port("water_current_samples", 0.25)
+        align_port("ground_distance_samples", 0.25)
+        max_latency(0.2)
+    end
+
+    #******************************
+    #******** Task States *********
+    #******************************
+    runtime_states :MISSING_TRANSFORMATION, :TRANSFORMATION_ALIGNMENT_FAILURES
+    exception_states :CRITICAL_ALIGNMENT_FAILURE
+
+    periodic 0.01
+end
+
+
+task_context "DVLBottomTrackingEvaluation" do
+
+    # Minimum correlation
+    property('min_correlation', 'double', 0.95)
+
+    # Minimum ground distance in m
+    property('min_ground_distance', 'double', 0.5)
+
+    # Maximum error velocity
+    property('max_error_velocity', 'double', 0.06)
+
+    # Standard deviation of the velocity messurements
+    property('sigma', 'double', 0.1)
+
+    input_port "bottom_tracking_samples", "/dvl_teledyne/BottomTracking"
+
+    output_port "velocity_samples", "/base/samples/RigidBodyState"
+
+    port_driven
+end
