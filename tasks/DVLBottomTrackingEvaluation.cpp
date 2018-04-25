@@ -38,10 +38,11 @@ bool DVLBottomTrackingEvaluation::evaluateBottomTrackingQuality(const dvl_teledy
         return false;
     }
     // check ping ratios
-    if(bottom_tracking.good_ping_ratio[0] <= 0.0 ||
+    if(_evaluate_ping_ratio.value() &&
+       (bottom_tracking.good_ping_ratio[0] <= 0.0 ||
         bottom_tracking.good_ping_ratio[1] <= 0.0 ||
         bottom_tracking.good_ping_ratio[2] <= 0.0 ||
-        bottom_tracking.good_ping_ratio[3] <= 0.0)
+        bottom_tracking.good_ping_ratio[3] <= 0.0))
     {
         return false;
     }

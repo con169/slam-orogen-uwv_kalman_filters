@@ -214,6 +214,9 @@ task_context "DVLBottomTrackingEvaluation" do
     # Standard deviation of the velocity messurements
     property('sigma', 'double', 0.1)
 
+    # Ensures that good_ping_ratio > 0 for all beams
+    property('evaluate_ping_ratio', '/bool', true)
+
     input_port "bottom_tracking_samples", "/dvl_teledyne/BottomTracking"
 
     output_port "velocity_samples", "/base/samples/RigidBodyState"
