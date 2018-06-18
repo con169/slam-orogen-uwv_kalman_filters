@@ -223,3 +223,20 @@ task_context "DVLBottomTrackingEvaluation" do
 
     port_driven
 end
+
+#
+# The Pose Predictor allows to compensate for a potential delay of the Pose Esitmator by integrating
+# the velocities of the Velocity Provider on the delayed pose.
+# Therefore it relies on the inputs from the Pose Esitmator and the Velocity Provider components.
+#
+task_context "PosePredictor" do
+
+    input_port('delayed_pose_samples', '/base/samples/RigidBodyState')
+
+    input_port('velocity_samples', '/base/samples/RigidBodyState').
+        needs_reliable_connection
+
+    output_port('pose_samples', '/base/samples/RigidBodyState')
+
+    periodic 0.01
+end
