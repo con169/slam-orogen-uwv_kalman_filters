@@ -393,7 +393,9 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     PoseUKF::PoseUKFParameter filter_parameter;
     filter_parameter.imu_in_body = imu_in_body.translation();
     filter_parameter.acc_bias_tau = filter_config.acceleration.bias_tau;
+    filter_parameter.acc_bias_offset = imu_in_body.rotation() * filter_config.acceleration.bias_offset;
     filter_parameter.gyro_bias_tau = filter_config.rotation_rate.bias_tau;
+    filter_parameter.gyro_bias_offset = imu_in_body.rotation() * filter_config.rotation_rate.bias_offset;
     filter_parameter.inertia_tau = filter_config.model_noise_parameters.inertia_tau;
     filter_parameter.lin_damping_tau = filter_config.model_noise_parameters.lin_damping_tau;
     filter_parameter.quad_damping_tau = filter_config.model_noise_parameters.quad_damping_tau;
