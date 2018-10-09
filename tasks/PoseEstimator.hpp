@@ -21,6 +21,13 @@ namespace uwv_kalman_filters{
 
     class PoseUKF;
 
+    struct VisualMarker
+    {
+        Eigen::Affine3d marker_pose;
+        Eigen::Matrix<double,6,6> cov_marker_pose;
+        std::vector<Eigen::Vector3d> feature_positions;
+    };
+
     /*! \class PoseEstimator
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
      * Essential interfaces are operations, data flow ports and properties. These interfaces have been defined using the oroGen specification.
@@ -51,6 +58,7 @@ namespace uwv_kalman_filters{
         Eigen::Matrix<double,6,6> cov_body_efforts_unknown;
         Eigen::Matrix<double,6,6> cov_body_efforts_unavailable;
         Eigen::Matrix3d cov_water_velocity;
+        Eigen::Matrix2d cov_visual_feature;
         double dynamic_model_min_depth;
         double water_profiling_min_correlation;
         double water_profiling_cell_size;
@@ -63,6 +71,8 @@ namespace uwv_kalman_filters{
         States new_state;
         double ground_distance;
         bool body_efforts_unknown;
+        std::map<std::string, VisualMarker> known_landmarks;
+        CameraConfiguration camera_config;
 
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample);
 
@@ -82,6 +92,8 @@ namespace uwv_kalman_filters{
 
         virtual void gps_samplesTransformerCallback(const base::Time &ts, const ::gps_base::Solution &gps_samples_sample);
 
+        virtual void apriltag_featuresTransformerCallback(const base::Time &ts, const ::apriltags::VisualFeaturePoints &visual_features_samples);
+
         void predictionStep(const base::Time& sample_time);
 
         bool initializeFilter(const base::samples::RigidBodyState& initial_rbs, const PoseUKFConfig& filter_config,
@@ -89,6 +101,8 @@ namespace uwv_kalman_filters{
                               const Eigen::Affine3d& nav_in_nwu);
 
         bool setProcessNoise(const PoseUKFConfig& filter_config, double imu_delta_t, const Eigen::Affine3d& imu_in_body);
+
+        void registerKnownLandmarks(const VisualLandmarkConfiguration& config, const Eigen::Affine3d& nav_in_nwu);
 
     public:
         /** TaskContext constructor for PoseEstimator

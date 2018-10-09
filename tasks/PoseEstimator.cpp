@@ -321,6 +321,53 @@ void PoseEstimator::gps_samplesTransformerCallback(const base::Time& ts, const g
     }
 }
 
+void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time& ts, const apriltags::VisualFeaturePoints& visual_features_samples)
+{
+    // receive camera to body transformation
+    Eigen::Affine3d cameraInBody;
+    if (!_camera2body.get(ts, cameraInBody))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid camera-in-body transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+    Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
+
+    for(unsigned i = 0; i < visual_features_samples.feature_points.size(); i++)
+    {
+        const apriltags::VisualFeaturePoint& feature_points = visual_features_samples.feature_points[i];
+        std::map<std::string, VisualMarker>::const_iterator landmark = known_landmarks.find(feature_points.identifier);
+        if(landmark == known_landmarks.end())
+        {
+            LOG_WARN_S << "Landmark with ID " << feature_points.identifier << " is unknown. Measurements will be skipped.";
+            continue;
+        }
+        else if(feature_points.points.size() > landmark->second.feature_positions.size())
+        {
+            LOG_ERROR_S << "More then " << landmark->second.feature_positions.size() << " visual features are not supported. Measurements will be skipped.";
+            continue;
+        }
+
+        std::vector<PoseUKF::VisualFeatureMeasurement> measurements(feature_points.points.size());
+        for(unsigned j = 0; j < feature_points.points.size(); j++)
+        {
+            measurements[j].mu = feature_points.points[j];
+            measurements[j].cov = cov_visual_feature;
+        }
+
+        try
+        {
+            pose_filter->integrateMeasurement(measurements, landmark->second.feature_positions,
+                                              landmark->second.marker_pose, landmark->second.cov_marker_pose,
+                                              camera_config, cameraInIMU);
+        }
+        catch(const std::runtime_error& e)
+        {
+            LOG_ERROR_S << "Failed to integrate visual measurement: " << e.what();
+        }
+    }
+}
+
 void PoseEstimator::predictionStep(const base::Time& sample_time)
 {
     try
@@ -451,6 +498,31 @@ bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double i
     return true;
 }
 
+void PoseEstimator::registerKnownLandmarks(const VisualLandmarkConfiguration& config, const Eigen::Affine3d& nav_in_nwu)
+{
+    const std::vector<VisualLandmark>& landmarks = config.landmarks;
+    const std::vector<base::Vector3d>& unit_feature_positions = config.unit_feature_positions;
+    for(unsigned i = 0; i < landmarks.size(); i++)
+    {
+        Eigen::Affine3d marker_in_nav(Eigen::AngleAxisd(landmarks[i].marker_euler_orientation.z(), Eigen::Vector3d::UnitZ()) *
+                                      Eigen::AngleAxisd(landmarks[i].marker_euler_orientation.y(), Eigen::Vector3d::UnitY()) *
+                                      Eigen::AngleAxisd(landmarks[i].marker_euler_orientation.x(), Eigen::Vector3d::UnitX()));
+        marker_in_nav.translation() = landmarks[i].marker_position;
+
+        VisualMarker landmark;
+        landmark.marker_pose = nav_in_nwu * marker_in_nav;
+        landmark.cov_marker_pose = Eigen::Matrix<double, 6, 6>::Zero();
+        landmark.cov_marker_pose.topLeftCorner<3,3>() = nav_in_nwu.rotation() * landmarks[i].marker_pose_std.head<3>().cwiseAbs2().asDiagonal() * nav_in_nwu.rotation().transpose();
+        landmark.cov_marker_pose.bottomRightCorner<3,3>() = nav_in_nwu.rotation() * landmarks[i].marker_pose_std.tail<3>().cwiseAbs2().asDiagonal() * nav_in_nwu.rotation().transpose();
+        landmark.feature_positions.resize(unit_feature_positions.size());
+        for(unsigned j = 0; j < unit_feature_positions.size(); j++)
+        {
+            landmark.feature_positions[j] = unit_feature_positions[j] * landmarks[i].marker_size * 0.5;
+        }
+        known_landmarks[landmarks[i].marker_id] = landmark;
+    }
+}
+
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See PoseEstimator.hpp for more detailed
 // documentation about them.
@@ -493,12 +565,18 @@ bool PoseEstimator::configureHook()
     cov_body_efforts_unknown = (1./_body_efforts_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
     cov_body_efforts_unavailable = (1./_imu_sensor_samples_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
     cov_water_velocity = (1./_water_current_samples_period.value()) * (_filter_config.value().water_velocity.measurement_std.cwiseAbs2()).asDiagonal();
+    cov_visual_feature = (1./_apriltag_features_period.value()) * _filter_config.value().visual_landmarks.feature_std.cwiseAbs2().asDiagonal();
 
     dynamic_model_min_depth = _filter_config.value().dynamic_model_min_depth;
 
     water_profiling_min_correlation = _filter_config.value().water_velocity.minimum_correlation;
     water_profiling_cell_size = _filter_config.value().water_velocity.cell_size;
     water_profiling_first_cell_blank = _filter_config.value().water_velocity.first_cell_blank;
+
+    camera_config = _filter_config.value().visual_landmarks.camera_config;
+
+    // register known landmarks
+    registerKnownLandmarks(_filter_config.value().visual_landmarks, nav_in_nwu);
 
     return true;
 }

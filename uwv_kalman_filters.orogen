@@ -8,6 +8,7 @@ import_types_from "base"
 import_types_from "gps_base"
 import_types_from "uwv_dynamic_model"
 import_types_from "dvl_teledyne"
+import_types_from "apriltags"
 import_types_from "uwv_kalman_filtersTypes.hpp"
 import_types_from "uwv_kalman_filters/PoseUKFConfig.hpp"
 
@@ -153,6 +154,9 @@ task_context "PoseEstimator" do
     # ground distance samples (This measurement is only used to identify the water current cells)
     input_port( "ground_distance_samples", "/base/samples/RigidBodyState").
         needs_reliable_connection
+
+    input_port( "apriltag_features", "/apriltags/VisualFeaturePoints").
+        needs_reliable_connection
         
     #******************************
     #******* Output Ports *********
@@ -173,6 +177,7 @@ task_context "PoseEstimator" do
         transformation("dvl", "body")
         transformation("pressure_sensor", "body")
         transformation("gps", "body")
+        transformation("camera", "body")
         # Allows to define a navigation frame in the NWU aligned navigation frame.
         # The NWU aligned navigation frame is the internal navigation frame of the filter.
         # The origin of the frame is defined by the geographic position in the filter config.
@@ -187,6 +192,7 @@ task_context "PoseEstimator" do
         align_port("gps_samples", 1.0)
         align_port("water_current_samples", 0.25)
         align_port("ground_distance_samples", 0.25)
+        align_port("apriltag_features", 0.1)
         max_latency(0.2)
     end
 
@@ -198,7 +204,6 @@ task_context "PoseEstimator" do
 
     periodic 0.01
 end
-
 
 task_context "DVLBottomTrackingEvaluation" do
 
