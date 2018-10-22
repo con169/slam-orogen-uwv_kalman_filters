@@ -412,10 +412,16 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     initial_state.gravity = GravityType(gravity);
     initial_state.inertia.block(0,0,2,2) = model_parameters.inertia_matrix.block(0,0,2,2);
     initial_state.inertia.block(0,2,2,1) = model_parameters.inertia_matrix.block(0,5,2,1);
+    initial_state.inertia.block(2,0,1,2) = model_parameters.inertia_matrix.block(5,0,1,2);
+    initial_state.inertia.block(2,2,1,1) = model_parameters.inertia_matrix.block(5,5,1,1);
     initial_state.lin_damping.block(0,0,2,2) = model_parameters.damping_matrices[0].block(0,0,2,2);
     initial_state.lin_damping.block(0,2,2,1) = model_parameters.damping_matrices[0].block(0,5,2,1);
+    initial_state.lin_damping.block(2,0,1,2) = model_parameters.damping_matrices[0].block(5,0,1,2);
+    initial_state.lin_damping.block(2,2,1,1) = model_parameters.damping_matrices[0].block(5,5,1,1);
     initial_state.quad_damping.block(0,0,2,2) = model_parameters.damping_matrices[1].block(0,0,2,2);
     initial_state.quad_damping.block(0,2,2,1) = model_parameters.damping_matrices[1].block(0,5,2,1);
+    initial_state.quad_damping.block(2,0,1,2) = model_parameters.damping_matrices[1].block(5,0,1,2);
+    initial_state.quad_damping.block(2,2,1,1) = model_parameters.damping_matrices[1].block(5,5,1,1);
     initial_state.water_velocity = WaterVelocityType(Eigen::Vector2d::Zero());
     initial_state.water_velocity_below = WaterVelocityType(Eigen::Vector2d::Zero());
     initial_state.bias_adcp = WaterVelocityType(Eigen::Vector2d::Zero());
