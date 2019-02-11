@@ -28,9 +28,11 @@ namespace uwv_kalman_filters{
     protected:
 
         std::list<base::samples::RigidBodyState> velocity_samples;
+        base::samples::RigidBodyState prediced_pose;
 
         void removeOldVelocitySamples(const base::Time& ts);
-        void predictPose(const base::samples::RigidBodyState& delayed_pose, base::samples::RigidBodyState& prediced_pose, double min_delta = 1.e-9);
+        void predictPose(const base::samples::RigidBodyState& delayed_pose);
+        void applyDelta(const base::samples::RigidBodyState& velocity_sample, double min_delta = 1.e-9);
 
     public:
         /** TaskContext constructor for PosePredictor
