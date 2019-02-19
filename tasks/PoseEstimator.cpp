@@ -238,6 +238,33 @@ void PoseEstimator::altitude_samplesTransformerCallback(const base::Time &ts, co
     }
 }
 
+void PoseEstimator::pressure_samplesTransformerCallback(const base::Time& ts, const base::samples::Pressure& pressure_samples_sample)
+{
+    // receive sensor to IMU transformation
+    Eigen::Affine3d pressureSensorInIMU;
+    if (!_pressure_sensor2body.get(ts, pressureSensorInIMU))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid pressure-sensor-in-body transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+    pressureSensorInIMU.translation() -= imu_in_body.translation();
+
+    // apply pressure measurement
+    PoseUKF::Pressure measurement;
+    measurement.mu << pressure_samples_sample.pascal;
+    measurement.cov << var_pressure;
+
+    try
+    {
+        pose_filter->integrateMeasurement(measurement, pressureSensorInIMU.translation());
+    }
+    catch(const std::runtime_error& e)
+    {
+        LOG_ERROR_S << "Failed to integrate pressure measurement: " << e.what();
+    }
+}
+
 void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample)
 {
     PoseUKF::State current_state;
@@ -425,6 +452,9 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     initial_state.water_velocity = WaterVelocityType(Eigen::Vector2d::Zero());
     initial_state.water_velocity_below = WaterVelocityType(Eigen::Vector2d::Zero());
     initial_state.bias_adcp = WaterVelocityType(Eigen::Vector2d::Zero());
+    Eigen::Matrix<double, 1, 1> water_density;
+    water_density << filter_config.hydrostatics.water_density;
+    initial_state.water_density = DensityType(water_density);
 
     PoseUKF::Covariance initial_state_cov = PoseUKF::Covariance::Zero();
     MTK::subblock(initial_state_cov, &FilterState::position) = nav_in_nwu.linear() * initial_rbs.cov_position * nav_in_nwu.linear().transpose();
@@ -442,6 +472,9 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     MTK::subblock(initial_state_cov, &FilterState::water_velocity) = pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
     MTK::subblock(initial_state_cov, &FilterState::water_velocity_below) = pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
     MTK::subblock(initial_state_cov, &FilterState::bias_adcp) = pow(filter_config.water_velocity.adcp_bias_limits,2) * Eigen::Matrix2d::Identity();
+    Eigen::Matrix<double, 1, 1> water_density_var;
+    water_density_var << pow(filter_config.hydrostatics.water_density_limits, 2.);
+    MTK::subblock(initial_state_cov, &FilterState::water_density) = water_density_var;
 
     PoseUKF::PoseUKFParameter filter_parameter;
     filter_parameter.imu_in_body = imu_in_body.translation();
@@ -456,6 +489,8 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
     filter_parameter.water_velocity_limits = filter_config.water_velocity.limits;
     filter_parameter.water_velocity_scale = filter_config.water_velocity.scale;
     filter_parameter.adcp_bias_tau = filter_config.water_velocity.adcp_bias_tau;
+    filter_parameter.atmospheric_pressure = filter_config.hydrostatics.atmospheric_pressure;
+    filter_parameter.water_density_tau = filter_config.hydrostatics.water_density_tau;
 
     pose_filter.reset(new PoseUKF(initial_state, initial_state_cov, filter_config.location,
                                   model_parameters, filter_parameter));
@@ -498,6 +533,10 @@ bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double i
 
     MTK::subblock(process_noise_cov, &FilterState::bias_adcp) = (2. / (filter_config.water_velocity.adcp_bias_tau * imu_delta_t)) *
                                         pow(filter_config.water_velocity.adcp_bias_limits,2) * Eigen::Matrix2d::Identity();
+
+    Eigen::Matrix<double, 1, 1> water_density_noise;
+    water_density_noise << (2. / (filter_config.hydrostatics.water_density_tau * imu_delta_t)) * pow(filter_config.hydrostatics.water_density_limits, 2.);
+    MTK::subblock(process_noise_cov, &FilterState::water_density) = water_density_noise;
 
     pose_filter->setProcessNoiseCovariance(process_noise_cov);
     
@@ -572,6 +611,7 @@ bool PoseEstimator::configureHook()
     cov_body_efforts_unavailable = (1./_imu_sensor_samples_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
     cov_water_velocity = (1./_water_current_samples_period.value()) * (_filter_config.value().water_velocity.measurement_std.cwiseAbs2()).asDiagonal();
     cov_visual_feature = (1./_apriltag_features_period.value()) * _filter_config.value().visual_landmarks.feature_std.cwiseAbs2().asDiagonal();
+    var_pressure = (1./_pressure_samples_period.value()) * pow(_filter_config.value().hydrostatics.pressure_std, 2.0);
 
     dynamic_model_min_depth = _filter_config.value().dynamic_model_min_depth;
 
@@ -674,6 +714,8 @@ void PoseEstimator::updateHook()
         secondary_states.cov_water_velocity_below = MTK::subblock(state_cov, &FilterState::water_velocity_below);
         secondary_states.bias_adcp = current_state.bias_adcp;
         secondary_states.cov_bias_adcp = MTK::subblock(state_cov, &FilterState::bias_adcp);
+        secondary_states.water_density = current_state.water_density(0);
+        secondary_states.var_water_density = MTK::subblock(state_cov, &FilterState::water_density)(0);
         secondary_states.time = current_sample_time;
         _secondary_states.write(secondary_states);
 

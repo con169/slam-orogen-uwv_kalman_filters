@@ -59,6 +59,7 @@ namespace uwv_kalman_filters{
         Eigen::Matrix<double,6,6> cov_body_efforts_unavailable;
         Eigen::Matrix3d cov_water_velocity;
         Eigen::Matrix2d cov_visual_feature;
+        double var_pressure;
         double dynamic_model_min_depth;
         double water_profiling_min_correlation;
         double water_profiling_cell_size;
@@ -85,6 +86,8 @@ namespace uwv_kalman_filters{
         virtual void imu_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &imu_sensor_samples_sample);
 
         virtual void altitude_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &altitude_samples_sample);
+
+        virtual void pressure_samplesTransformerCallback(const base::Time &ts, const ::base::samples::Pressure &pressure_samples_sample);
 
         virtual void xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample);
 

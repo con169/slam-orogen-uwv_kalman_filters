@@ -41,7 +41,8 @@ struct SecondaryStates
     base::Matrix2d cov_water_velocity_below;
     base::Vector2d bias_adcp;
     base::Matrix2d cov_bias_adcp;
-    
+    double water_density;
+    double var_water_density;
 };
 
 }
