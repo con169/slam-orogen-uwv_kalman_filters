@@ -131,8 +131,8 @@ task_context "PoseEstimator" do
     input_port('imu_sensor_samples', '/base/samples/IMUSensors').
         needs_reliable_connection
 
-    # Pressure sensor samples. Altitude in navigation frame.
-    input_port('pressure_sensor_samples', '/base/samples/RigidBodyState').
+    # Altitude in navigation frame
+    input_port('altitude_samples', '/base/samples/RigidBodyState').
         needs_reliable_connection
 
     # Position samples from an absolut source (e.g. GPS or USBL) expressed in the navigation frame
@@ -186,7 +186,7 @@ task_context "PoseEstimator" do
         align_port("body_efforts", 0.01)
         align_port("dvl_velocity_samples", 0.2)
         align_port("imu_sensor_samples", 0.01)
-        align_port("pressure_sensor_samples", 0.01)
+        align_port("altitude_samples", 0.01)
         align_port("xy_position_samples", 0.1)
         align_port("gps_position_samples", 1.0)
         align_port("gps_samples", 1.0)

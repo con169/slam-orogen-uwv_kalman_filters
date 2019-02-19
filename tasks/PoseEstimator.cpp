@@ -204,7 +204,7 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
         body_efforts_unknown = true;
 }
 
-void PoseEstimator::pressure_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_sensor_samples_sample)
+void PoseEstimator::altitude_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_sensor_samples_sample)
 {
     // receive sensor to IMU transformation
     Eigen::Affine3d pressureSensorInIMU;

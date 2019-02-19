@@ -84,7 +84,7 @@ namespace uwv_kalman_filters{
 
         virtual void imu_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::IMUSensors &imu_sensor_samples_sample);
 
-        virtual void pressure_sensor_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_sensor_samples_sample);
+        virtual void altitude_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &altitude_samples_sample);
 
         virtual void xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample);
 
