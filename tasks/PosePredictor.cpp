@@ -59,7 +59,7 @@ void PosePredictor::applyDelta(const base::samples::RigidBodyState& velocity_sam
     // integrate delta
     prediced_pose.position += prediced_pose.orientation * velocity_sample.velocity * delta_t;
     MTK::SO3<double> orientation = MTK::SO3<double>(prediced_pose.orientation);
-    orientation.boxplus(velocity_sample.angular_velocity, delta_t);
+    orientation.boxplus(prediced_pose.orientation * velocity_sample.angular_velocity, delta_t);
     prediced_pose.orientation = orientation.normalized();
     prediced_pose.time = velocity_sample.time;
 }
