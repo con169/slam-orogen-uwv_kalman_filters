@@ -18,6 +18,18 @@ struct VelocityProcessNoise
                              depth_noise(base::unknown<double>()) {}
 };
 
+struct BottomEstimatorParameters
+{
+    /* Standard deviation of the range measurements in m at 1Hz */
+    double range_measurement_std;
+    /* Maximum range of the DVL sensor in m */
+    double dvl_max_range;
+    /* Change of distance at 1m/s in m */
+    double distance_noise;
+    /* Change of normal angles at 1m/s in rad */
+    double surface_normal_noise;
+};
+
 struct SecondaryStates
 {
     base::Time time;

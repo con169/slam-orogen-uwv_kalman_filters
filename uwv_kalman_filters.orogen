@@ -210,6 +210,74 @@ task_context "PoseEstimator" do
     periodic 0.01
 end
 
+#
+# This filter estimates the distance and normal of a bottom surface.
+# It must receive dead reckoning pose samples and DVL based range measurements.
+# The output of the filter is the distance to the ground with respect to the current body position
+# and the normal of the surface.
+# Note: Since only the distance as absolute value is estimated it is not
+# provided in the body frame, only with respect to the body position disregarding the orientation.
+#
+task_context "BottomEstimator" do
+    needs_configuration
+
+    #******************************
+    #***** Filter Properties ******
+    #******************************
+    # max time delta between to successive measurements in seconds
+    property( "max_time_delta", "double", 2.0 )
+
+    # Filter configuration
+    property( "filter_config", "/uwv_kalman_filters/BottomEstimatorParameters" )
+
+    # The frame of the estimated ground distance with respect to the body
+    property( 'source_frame', '/std/string', 'ground_surface' )
+
+
+    #******************************
+    #******* Input Ports **********
+    #******************************
+
+    # DVL bottom tracking measurements
+    input_port("dvl_bottom_tracking", "/dvl_teledyne/BottomTracking").
+        needs_reliable_connection
+
+    # Pose samples of the robot
+    input_port( "pose_samples", "/base/samples/RigidBodyState" ).
+        needs_reliable_connection
+
+
+    #******************************
+    #******* Output Ports *********
+    #******************************
+
+    # timestamped samples of the current estimated ground distance
+    output_port( "ground_samples", "/base/samples/RigidBodyState" )
+
+
+    #******************************
+    #** Aggregator Parameters *****
+    #******************************
+    transformer do
+        transformation("dvl_transducer_0", "body")
+        transformation("dvl_transducer_1", "body")
+        transformation("dvl_transducer_2", "body")
+        transformation("dvl_transducer_3", "body")
+
+        align_port("pose_samples", 0.01)
+        align_port("dvl_bottom_tracking", 0.2)
+        max_latency(0.1)
+    end
+
+    #******************************
+    #******** Task States *********
+    #******************************
+    runtime_states :MISSING_TRANSFORMATION, :TRANSFORMATION_ALIGNMENT_FAILURES
+    exception_states :CRITICAL_ALIGNMENT_FAILURE
+
+    periodic 0.01
+end
+
 task_context "DVLBottomTrackingEvaluation" do
 
     # Minimum correlation
