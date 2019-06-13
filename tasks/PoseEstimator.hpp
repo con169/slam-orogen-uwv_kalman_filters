@@ -99,6 +99,8 @@ namespace uwv_kalman_filters{
 
         void predictionStep(const base::Time& sample_time);
 
+        void writeEstimatedState();
+
         bool initializeFilter(const base::samples::RigidBodyState& initial_rbs, const PoseUKFConfig& filter_config,
                               const uwv_dynamic_model::UWVParameters& model_parameters, const Eigen::Affine3d& imu_in_body,
                               const Eigen::Affine3d& nav_in_nwu);

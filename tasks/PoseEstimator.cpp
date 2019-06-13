@@ -202,6 +202,9 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
     }
     else if((ts - last_efforts_sample_time).toSeconds() > (_body_efforts_period.value() * 3.0))
         body_efforts_unknown = true;
+
+    // write current guess
+    writeEstimatedState();
 }
 
 void PoseEstimator::altitude_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_sensor_samples_sample)
@@ -405,6 +408,60 @@ void PoseEstimator::predictionStep(const base::Time& sample_time)
     {
         LOG_ERROR_S << "Failed to execute prediction step: " << e.what();
         LOG_ERROR_S << "Skipping prediction step.";
+    }
+}
+
+void PoseEstimator::writeEstimatedState()
+{
+    // write estimated body state
+    PoseUKF::State current_state;
+    PoseUKF::Covariance state_cov;
+    base::Time current_sample_time = pose_filter->getLastMeasurementTime();
+    if(current_sample_time > last_sample_time && pose_filter->getCurrentState(current_state, state_cov))
+    {
+        /* Transform filter state from IMU in NWU aligned navigation frame to
+         * body in navigation frame */
+        base::samples::RigidBodyState pose_sample;
+        pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
+        pose_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
+        pose_sample.angular_velocity = pose_filter->getRotationRate();
+        pose_sample.velocity = nwu_in_nav.rotation() * Eigen::Vector3d(current_state.velocity) - pose_sample.orientation * pose_sample.angular_velocity.cross(imu_in_body.translation());
+        pose_sample.cov_position = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::position) * nwu_in_nav.linear().transpose();
+        pose_sample.cov_orientation = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::orientation) * nwu_in_nav.linear().transpose();
+        pose_sample.cov_angular_velocity = cov_angular_velocity;
+        pose_sample.cov_velocity = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::velocity) * nwu_in_nav.linear().transpose();
+        pose_sample.time = current_sample_time;
+        pose_sample.targetFrame = _navigation_frame.value();
+        pose_sample.sourceFrame = _body_frame.value();
+        _pose_samples.write(pose_sample);
+
+        SecondaryStates secondary_states;
+        secondary_states.acceleration = nwu_in_nav.rotation() * current_state.acceleration;
+        secondary_states.cov_acceleration = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::acceleration) * nwu_in_nav.linear().transpose();
+        secondary_states.bias_gyro = current_state.bias_gyro;
+        secondary_states.cov_bias_gyro = MTK::subblock(state_cov, &FilterState::bias_gyro);
+        secondary_states.bias_acc = current_state.bias_acc;
+        secondary_states.cov_bias_acc = MTK::subblock(state_cov, &FilterState::bias_acc);
+        secondary_states.gravity = current_state.gravity(0);
+        secondary_states.var_gravity = MTK::subblock(state_cov, &FilterState::gravity)(0);
+        secondary_states.inertia = current_state.inertia.cwiseAbs();
+        secondary_states.cov_inertia_diag = MTK::subblock(state_cov, &FilterState::inertia).diagonal();
+        secondary_states.lin_damping = current_state.lin_damping.cwiseAbs();
+        secondary_states.cov_lin_damping_diag = MTK::subblock(state_cov, &FilterState::lin_damping).diagonal();
+        secondary_states.quad_damping = current_state.quad_damping.cwiseAbs();
+        secondary_states.cov_quad_damping_diag = MTK::subblock(state_cov, &FilterState::quad_damping).diagonal();
+        secondary_states.water_velocity = current_state.water_velocity;
+        secondary_states.cov_water_velocity = MTK::subblock(state_cov, &FilterState::water_velocity);
+        secondary_states.water_velocity_below = current_state.water_velocity_below;
+        secondary_states.cov_water_velocity_below = MTK::subblock(state_cov, &FilterState::water_velocity_below);
+        secondary_states.bias_adcp = current_state.bias_adcp;
+        secondary_states.cov_bias_adcp = MTK::subblock(state_cov, &FilterState::bias_adcp);
+        secondary_states.water_density = current_state.water_density(0);
+        secondary_states.var_water_density = MTK::subblock(state_cov, &FilterState::water_density)(0);
+        secondary_states.time = current_sample_time;
+        _secondary_states.write(secondary_states);
+
+        last_sample_time = current_sample_time;
     }
 }
 
@@ -670,57 +727,6 @@ void PoseEstimator::updateHook()
         new_state = TRANSFORMATION_ALIGNMENT_FAILURES;
     if(streams_with_critical_alignment_failures > 0)
         exception(CRITICAL_ALIGNMENT_FAILURE);
-
-    // write estimated body state
-    PoseUKF::State current_state;
-    PoseUKF::Covariance state_cov;
-    base::Time current_sample_time = pose_filter->getLastMeasurementTime();
-    if(current_sample_time > last_sample_time && pose_filter->getCurrentState(current_state, state_cov))
-    {
-        /* Transform filter state from IMU in NWU aligned navigation frame to
-         * body in navigation frame */
-        base::samples::RigidBodyState pose_sample;
-        pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
-        pose_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
-        pose_sample.angular_velocity = pose_filter->getRotationRate();
-        pose_sample.velocity = nwu_in_nav.rotation() * Eigen::Vector3d(current_state.velocity) - pose_sample.orientation * pose_sample.angular_velocity.cross(imu_in_body.translation());
-        pose_sample.cov_position = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::position) * nwu_in_nav.linear().transpose();
-        pose_sample.cov_orientation = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::orientation) * nwu_in_nav.linear().transpose();
-        pose_sample.cov_angular_velocity = cov_angular_velocity;
-        pose_sample.cov_velocity = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::velocity) * nwu_in_nav.linear().transpose();
-        pose_sample.time = current_sample_time;
-        pose_sample.targetFrame = _navigation_frame.value();
-        pose_sample.sourceFrame = _body_frame.value();
-        _pose_samples.write(pose_sample);
-
-        SecondaryStates secondary_states;
-        secondary_states.acceleration = current_state.acceleration;
-        secondary_states.cov_acceleration = MTK::subblock(state_cov, &FilterState::acceleration);
-        secondary_states.bias_gyro = current_state.bias_gyro;
-        secondary_states.cov_bias_gyro = MTK::subblock(state_cov, &FilterState::bias_gyro);
-        secondary_states.bias_acc = current_state.bias_acc;
-        secondary_states.cov_bias_acc = MTK::subblock(state_cov, &FilterState::bias_acc);
-        secondary_states.gravity = current_state.gravity(0);
-        secondary_states.var_gravity = MTK::subblock(state_cov, &FilterState::gravity)(0);
-        secondary_states.inertia = current_state.inertia.cwiseAbs();
-        secondary_states.cov_inertia_diag = MTK::subblock(state_cov, &FilterState::inertia).diagonal();
-        secondary_states.lin_damping = current_state.lin_damping.cwiseAbs();
-        secondary_states.cov_lin_damping_diag = MTK::subblock(state_cov, &FilterState::lin_damping).diagonal();
-        secondary_states.quad_damping = current_state.quad_damping.cwiseAbs();
-        secondary_states.cov_quad_damping_diag = MTK::subblock(state_cov, &FilterState::quad_damping).diagonal();
-        secondary_states.water_velocity = current_state.water_velocity;
-        secondary_states.cov_water_velocity = MTK::subblock(state_cov, &FilterState::water_velocity);
-        secondary_states.water_velocity_below = current_state.water_velocity_below;
-        secondary_states.cov_water_velocity_below = MTK::subblock(state_cov, &FilterState::water_velocity_below);
-        secondary_states.bias_adcp = current_state.bias_adcp;
-        secondary_states.cov_bias_adcp = MTK::subblock(state_cov, &FilterState::bias_adcp);
-        secondary_states.water_density = current_state.water_density(0);
-        secondary_states.var_water_density = MTK::subblock(state_cov, &FilterState::water_density)(0);
-        secondary_states.time = current_sample_time;
-        _secondary_states.write(secondary_states);
-
-        last_sample_time = current_sample_time;
-    }
 
     // write task state if it has changed
     if(last_state != new_state)
