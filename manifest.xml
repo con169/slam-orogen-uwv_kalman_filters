@@ -13,6 +13,7 @@
   <depend package="slam/uwv_kalman_filters" />
   <depend package="drivers/orogen/gps_base" />
   <depend package="drivers/orogen/dvl_teledyne" />
+  <depend package="perception/orogen/apriltags" />
 
   <tags>stable</tags>
 </package>
