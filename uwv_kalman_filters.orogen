@@ -63,7 +63,6 @@ task_context "VelocityProvider" do
     # timestamped samples of the current estimated velocity of the robot
     output_port( "velocity_samples", "/base/samples/RigidBodyState" )
 
-
     #******************************
     #** Aggregator Parameters ***** 
     #******************************
@@ -213,8 +212,8 @@ end
 #
 # This filter estimates the distance and normal of a bottom surface.
 # It must receive dead reckoning pose samples and DVL based range measurements.
-# The output of the filter is the distance to the ground with respect to the current body position
-# and the normal of the surface.
+# The output of the filter is the normal of the surface and the distance to the
+# ground with respect to the current body position.
 # Note: Since only the distance as absolute value is estimated it is not
 # provided in the body frame, only with respect to the body position disregarding the orientation.
 #

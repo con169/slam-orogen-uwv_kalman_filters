@@ -416,7 +416,7 @@ void PoseEstimator::writeEstimatedState()
     // write estimated body state
     PoseUKF::State current_state;
     PoseUKF::Covariance state_cov;
-    base::Time current_sample_time = pose_filter->getLastMeasurementTime();
+    base::Time current_sample_time = base::Time::fromMicroseconds(pose_filter->getLastMeasurementTime());
     if(current_sample_time > last_sample_time && pose_filter->getCurrentState(current_state, state_cov))
     {
         /* Transform filter state from IMU in NWU aligned navigation frame to
