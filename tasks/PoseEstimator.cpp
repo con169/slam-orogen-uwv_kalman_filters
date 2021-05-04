@@ -483,11 +483,16 @@ bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initia
         LOG_ERROR_S << "The damping matrices must have at least two elements!";
         return false;
     }
+    
+    Eigen::Vector3d position_nwu = nav_in_nwu * (initial_rbs.position + initial_rbs.orientation * imu_in_body.translation());
+    Eigen::Quaterniond orientation_nwu = Eigen::Quaterniond(nav_in_nwu.rotation() * initial_rbs.orientation);
+    Eigen::Matrix3d cov_position_nwu = nav_in_nwu.linear() * initial_rbs.cov_position * nav_in_nwu.linear().transpose();
+    Eigen::Matrix3d cov_orientation_nwu = nav_in_nwu.linear() * initial_rbs.cov_orientation * nav_in_nwu.linear().transpose();
 
-    pose_filter.reset(new PoseUKF(initial_rbs.position, initial_rbs.cov_position, 
-                                  initial_rbs.orientation, initial_rbs.cov_orientation,
+    pose_filter.reset(new PoseUKF(position_nwu, cov_position_nwu, 
+                                  orientation_nwu, cov_orientation_nwu,
                                   filter_config, model_parameters, 
-                                  imu_in_body, nav_in_nwu));
+                                  imu_in_body));
     return true;
 }
 
