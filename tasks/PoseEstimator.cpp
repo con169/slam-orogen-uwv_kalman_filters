@@ -6,6 +6,7 @@
 #include <pose_estimation/GravitationalModel.hpp>
 #include <base-logging/Logging.hpp>
 #include "uwv_kalman_filtersTypes.hpp"
+#include <ctime>
 
 
 using namespace uwv_kalman_filters;
@@ -398,6 +399,39 @@ void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time& ts, c
     }
 }
 
+void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
+{
+    base::samples::RigidBodyState rbs;
+    while(_delayed_xy_position_samples.read(rbs) == RTT::NewData)
+    {
+        delayed_position_samples.push_back(rbs);
+    }
+    
+    while(!delayed_position_samples.empty() && delayed_position_samples.front().time < ts)
+    {
+        // NOTE Currently the displacement from the delayed sensor position to the IMU frame is disregarded.
+        // apply xy measurement
+        PoseUKF::XY_Position measurement;
+        measurement.mu = nav_in_nwu_2d * delayed_position_samples.front().position.head<2>();
+        measurement.cov = nav_in_nwu_2d.linear() * delayed_position_samples.front().cov_position.topLeftCorner(2,2) * nav_in_nwu_2d.linear().transpose();
+
+        try
+        {
+            double delay = (ts - delayed_position_samples.front().time).toSeconds();
+            if(!pose_filter->integrateDelayedMeasurement(measurement, delay))
+            {
+                LOG_ERROR_S << "Failed to integrate delayed 2D position measurement: Maximum delay exceeded (" << delay << " seconds).";
+            }
+        }
+        catch(const std::runtime_error& e)
+        {
+            LOG_ERROR_S << "Failed to integrate delayed 2D position measurement: " << e.what();
+        }
+        
+        delayed_position_samples.pop_front();
+    }
+}
+
 void PoseEstimator::predictionStep(const base::Time& sample_time)
 {
     try
@@ -409,6 +443,8 @@ void PoseEstimator::predictionStep(const base::Time& sample_time)
         LOG_ERROR_S << "Failed to execute prediction step: " << e.what();
         LOG_ERROR_S << "Skipping prediction step.";
     }
+    
+    integrateDelayedPositionSamples(sample_time);
 }
 
 void PoseEstimator::writeEstimatedState()
@@ -605,6 +641,12 @@ bool PoseEstimator::startHook()
         return false;
 
     pose_filter->setMaxTimeDelta(_max_time_delta.get());
+    
+    // setup delayed state buffer
+    if(_max_delay_pos_measurement.rvalue() > 0)
+    {
+        pose_filter->setupDelayedStateBuffer(_max_delay_pos_measurement.rvalue());
+    }
 
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());

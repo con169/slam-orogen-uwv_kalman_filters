@@ -112,6 +112,10 @@ task_context "PoseEstimator" do
 
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
+    
+    # Maximum possible delay for the delayed xy position samples
+    # Note this musst be >0 if the delayed xy position samples input is used.
+    property( "max_delay_pos_measurement", "double", 0.0 )
 
 
     #******************************
@@ -159,6 +163,10 @@ task_context "PoseEstimator" do
         needs_reliable_connection
 
     input_port( "apriltag_features", "/apriltags/VisualFeaturePoints").
+        needs_reliable_connection
+        
+    # Delayed position samples from an absolut source (e.g. USBL) expressed in the navigation frame
+    input_port( "delayed_xy_position_samples", "/base/samples/RigidBodyState" ).
         needs_reliable_connection
         
     #******************************

@@ -74,6 +74,7 @@ namespace uwv_kalman_filters{
         bool body_efforts_unknown;
         std::map<std::string, VisualMarker> known_landmarks;
         CameraConfiguration camera_config;
+        std::list<base::samples::RigidBodyState> delayed_position_samples;
 
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample);
 
@@ -96,6 +97,8 @@ namespace uwv_kalman_filters{
         virtual void gps_samplesTransformerCallback(const base::Time &ts, const ::gps_base::Solution &gps_samples_sample);
 
         virtual void apriltag_featuresTransformerCallback(const base::Time &ts, const ::apriltags::VisualFeaturePoints &visual_features_samples);
+        
+        void integrateDelayedPositionSamples(const base::Time &ts);
 
         void predictionStep(const base::Time& sample_time);
 
