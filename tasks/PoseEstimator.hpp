@@ -97,6 +97,8 @@ namespace uwv_kalman_filters{
 
         virtual void apriltag_featuresTransformerCallback(const base::Time &ts, const ::apriltags::VisualFeaturePoints &visual_features_samples);
 
+        virtual void apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const ::apriltags::MarkerPosesStamped &marker_poses_stamped_samples);
+
         void predictionStep(const base::Time& sample_time);
 
         void writeEstimatedState();
