@@ -288,6 +288,57 @@ void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts,
     }
 }
 
+void PoseEstimator::usbl_samplesTransformerCallback(const base::Time &ts, const base::samples::RigidBodyState &usbl_sample)
+{
+    Eigen::Affine3d usblModemInBody;
+    Eigen::Affine3d usblBaseInNav;
+    if (!_usbl_modem2body.get(ts, usblModemInBody))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid usbl_modem-in-body transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+    if (!_usbl_base2navigation.get(ts, usblBaseInNav))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid usbl_base-in-nav transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+
+    PoseUKF::State current_state;
+    if (pose_filter->getCurrentState(current_state))
+    {
+        PoseUKF::XY_Position measurement;
+
+        base::samples::RigidBodyState rbs_usbl_sample = usbl_sample; // this hurts in my eyes
+        rbs_usbl_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
+        Eigen::Affine3d usblM_in_nav = usblBaseInNav * rbs_usbl_sample.getTransform();
+        Eigen::Affine3d body_in_nav = usblM_in_nav * usblModemInBody.inverse();
+        std::cout << "USBL Body in Nav measurement: " << body_in_nav.translation() << std::endl;
+        Eigen::Affine3d imu_in_nav = body_in_nav * imu_in_body;
+        Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
+
+        measurement.mu = imu_in_nwu.translation().head<2>();
+        // TODO: this is only a hack, it should be passed by the usbl driver
+        Eigen::Matrix2d cov;
+        cov(0, 0) = 0.2;
+        cov(0, 1) = 0.;
+        cov(1, 0) = 0.;
+        cov(1, 1) = 0.2;
+        measurement.cov = cov;
+        // try
+        // {
+        //     pose_filter->integrateMeasurement(measurement);
+        // }
+        // catch (const std::runtime_error &e)
+        // {
+        //     LOG_ERROR_S << "Failed to integrate 2D position measurement: " << e.what();
+        // }
+
+    }
+
+}
+
 void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time &ts, const base::samples::RigidBodyState &gps_position_samples_sample)
 {
     // receive GPS to IMU transformation
@@ -412,14 +463,32 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
     {
         PoseUKF::XY_Position measurement;
         // TODO check if sourceFrame is correct to receive the tag id
-        std::map<std::string, VisualMarker>::const_iterator landmark = known_landmarks.find(marker_pose.sourceFrame);
+        std::string erase = "_frame";
+        std::string marker_id = marker_pose.sourceFrame;
+        marker_id = marker_id.erase(marker_id.find(erase), erase.length());
+        // PoseUKF::State current_state;
+        // if (pose_filter->getCurrentState(current_state))
+        // {
+        //     Eigen::Affine3d marker_in_body = cameraInBody * marker_pose.getTransform();
+        //     base::samples::RigidBodyState rbs_body_in_nav;
+        //     rbs_body_in_nav.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
+        //     rbs_body_in_nav.orientation = nwu_in_nav.rotation() * current_state.orientation;
+        //     Eigen::Affine3d marker_in_nav_print = rbs_body_in_nav.getTransform() * marker_in_body;
+        //     std::cout << "Marker: " << marker_id << " Position: " << marker_in_nav_print.translation() << " Orientation: " << marker_in_nav_print.rotation() << std::endl;
+        // }
+        
+        std::map<std::string, VisualMarker>::const_iterator landmark = known_landmarks.find(marker_id);
         if (landmark == known_landmarks.end())
         {
-            LOG_WARN_S << "Marker with ID " << marker_pose.sourceFrame << " is unknown. Measurements will be skipped.";
+            std::cout << "Marker with ID " << marker_id << " is unknown. Measurements will be skipped." << std::endl;
             continue;
         }
+        Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
+        Eigen::Affine3d markerInImu = cameraInIMU * marker_pose.getTransform();
 
-        Eigen::Affine3d ImuInNWU_measurement = landmark->second.marker_pose * marker_pose.getTransform().inverse() * cameraInBody.inverse() * imu_in_body;
+        Eigen::Affine3d ImuInNWU_measurement = landmark->second.marker_pose * markerInImu.inverse(); //landmark->second.marker_pose * marker_pose.getTransform().inverse() * cameraInBody.inverse() * imu_in_body;
+
+        //std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
 
         measurement.mu = ImuInNWU_measurement.translation().head<2>();
         measurement.cov = landmark->second.cov_marker_pose.topLeftCorner(2, 2);

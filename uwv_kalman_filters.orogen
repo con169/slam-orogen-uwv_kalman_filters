@@ -143,6 +143,10 @@ task_context "PoseEstimator" do
     input_port( "xy_position_samples", "/base/samples/RigidBodyState" ).
         needs_reliable_connection
 
+    # Position samples from USBL (USBL sensor in USBL base frame)
+    input_port( "usbl_samples", "/base/samples/RigidBodyState" ).
+        needs_reliable_connection
+
     # projected position
     input_port( "gps_position_samples", "/base/samples/RigidBodyState" ).
         needs_reliable_connection
@@ -185,6 +189,8 @@ task_context "PoseEstimator" do
         transformation("pressure_sensor", "body")
         transformation("gps", "body")
         transformation("camera", "body")
+        transformation("usbl_modem", "body")
+        transformation("usbl_base", "navigation")
         # Allows to define a navigation frame in the NWU aligned navigation frame.
         # The NWU aligned navigation frame is the internal navigation frame of the filter.
         # The origin of the frame is defined by the geographic position in the filter config.
@@ -196,12 +202,14 @@ task_context "PoseEstimator" do
         align_port("altitude_samples", 0.01)
         align_port("pressure_samples", 0.01)
         align_port("xy_position_samples", 0.1)
+        align_port("usbl_samples", 1.0)
         align_port("gps_position_samples", 1.0)
         align_port("gps_samples", 1.0)
         align_port("water_current_samples", 0.25)
         align_port("ground_distance_samples", 0.25)
         align_port("apriltag_features", 0.1)
         align_port("apriltags_marker_poses_stamped", 0.1)
+        
         max_latency(0.2)
     end
 

@@ -91,13 +91,15 @@ namespace uwv_kalman_filters{
 
         virtual void xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample);
 
+        virtual void usbl_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &usbl_sample);
+
         virtual void gps_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &gps_position_samples_sample);
 
         virtual void gps_samplesTransformerCallback(const base::Time &ts, const ::gps_base::Solution &gps_samples_sample);
 
         virtual void apriltag_featuresTransformerCallback(const base::Time &ts, const ::apriltags::VisualFeaturePoints &visual_features_samples);
 
-        virtual void apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const ::apriltags::MarkerPosesStamped &marker_poses_stamped_samples);
+        virtual void apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const ::apriltags::MarkerPosesStamped &marker_poses_stamped_samples);        
 
         void predictionStep(const base::Time& sample_time);
 
