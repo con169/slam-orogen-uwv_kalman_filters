@@ -308,35 +308,51 @@ void PoseEstimator::usbl_samplesTransformerCallback(const base::Time &ts, const 
     PoseUKF::State current_state;
     if (pose_filter->getCurrentState(current_state))
     {
-        PoseUKF::XY_Position measurement;
+        base::samples::RigidBodyState delayed_state;
+        if (!this->findBestStateSampleInBuffer(usbl_sample.time, delayed_state))
+            return;
 
-        base::samples::RigidBodyState rbs_usbl_sample = usbl_sample; // this hurts in my eyes
+        base::samples::RigidBodyState rbs_usbl_sample = usbl_sample;
         rbs_usbl_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
+
+        base::samples::RigidBodyState pose_sample;
+        pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation()); // only position part is necessary
+
+        // add moved distance between point where measurement was taken and current pose to measured position sample
+        rbs_usbl_sample.position += delayed_state.position - pose_sample.position;
+
         Eigen::Affine3d usblM_in_nav = usblBaseInNav * rbs_usbl_sample.getTransform();
         Eigen::Affine3d body_in_nav = usblM_in_nav * usblModemInBody.inverse();
         std::cout << "USBL Body in Nav measurement: " << body_in_nav.translation() << std::endl;
         Eigen::Affine3d imu_in_nav = body_in_nav * imu_in_body;
         Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
 
-        measurement.mu = imu_in_nwu.translation().head<2>();
+        // TODO: Merge to XYZ Position ?
+        PoseUKF::XY_Position xy_measurement;
+        PoseUKF::Z_Position z_measurement;
+        xy_measurement.mu = imu_in_nwu.translation().head<2>();
         // TODO: this is only a hack, it should be passed by the usbl driver
-        Eigen::Matrix2d cov;
-        cov(0, 0) = 0.2;
-        cov(0, 1) = 0.;
-        cov(1, 0) = 0.;
-        cov(1, 1) = 0.2;
-        measurement.cov = cov;
-        // try
-        // {
-        //     pose_filter->integrateMeasurement(measurement);
-        // }
-        // catch (const std::runtime_error &e)
-        // {
-        //     LOG_ERROR_S << "Failed to integrate 2D position measurement: " << e.what();
-        // }
+        Eigen::Matrix2d xy_cov;
+        xy_cov(0, 0) = 0.2;
+        xy_cov(0, 1) = 0.;
+        xy_cov(1, 0) = 0.;
+        xy_cov(1, 1) = 0.2;
+        xy_measurement.cov = xy_cov;
+        z_measurement.mu = imu_in_nwu.translation().tail<1>();
+        Eigen::Matrix<double, 1, 1> z_cov;
+        z_cov(0, 0) = 0.2;
+        z_measurement.cov = z_cov;
 
+        try
+        {
+            pose_filter->integrateMeasurement(xy_measurement);
+            pose_filter->integrateMeasurement(z_measurement);
+        }
+        catch (const std::runtime_error &e)
+        {
+            LOG_ERROR_S << "Failed to integrate USBL Position measurement: " << e.what();
+        }
     }
-
 }
 
 void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time &ts, const base::samples::RigidBodyState &gps_position_samples_sample)
@@ -476,7 +492,7 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
         //     Eigen::Affine3d marker_in_nav_print = rbs_body_in_nav.getTransform() * marker_in_body;
         //     std::cout << "Marker: " << marker_id << " Position: " << marker_in_nav_print.translation() << " Orientation: " << marker_in_nav_print.rotation() << std::endl;
         // }
-        
+
         std::map<std::string, VisualMarker>::const_iterator landmark = known_landmarks.find(marker_id);
         if (landmark == known_landmarks.end())
         {
@@ -486,9 +502,9 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
         Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
         Eigen::Affine3d markerInImu = cameraInIMU * marker_pose.getTransform();
 
-        Eigen::Affine3d ImuInNWU_measurement = landmark->second.marker_pose * markerInImu.inverse(); //landmark->second.marker_pose * marker_pose.getTransform().inverse() * cameraInBody.inverse() * imu_in_body;
+        Eigen::Affine3d ImuInNWU_measurement = landmark->second.marker_pose * markerInImu.inverse(); // landmark->second.marker_pose * marker_pose.getTransform().inverse() * cameraInBody.inverse() * imu_in_body;
 
-        //std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
+        // std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
 
         measurement.mu = ImuInNWU_measurement.translation().head<2>();
         measurement.cov = landmark->second.cov_marker_pose.topLeftCorner(2, 2);
@@ -540,6 +556,8 @@ void PoseEstimator::writeEstimatedState()
         pose_sample.sourceFrame = _body_frame.value();
         _pose_samples.write(pose_sample);
 
+        this->addStateToBuffer(pose_sample);
+
         SecondaryStates secondary_states;
         secondary_states.acceleration = nwu_in_nav.rotation() * current_state.acceleration;
         secondary_states.cov_acceleration = nwu_in_nav.linear() * MTK::subblock(state_cov, &FilterState::acceleration) * nwu_in_nav.linear().transpose();
@@ -567,6 +585,7 @@ void PoseEstimator::writeEstimatedState()
         _secondary_states.write(secondary_states);
 
         last_sample_time = current_sample_time;
+        this->manageBufferSize();
     }
 }
 
@@ -732,6 +751,61 @@ void PoseEstimator::registerKnownLandmarks(const VisualLandmarkConfiguration &co
     }
 }
 
+void PoseEstimator::addStateToBuffer(const base::samples::RigidBodyState &state)
+{
+    state_buffer_.push_back(state);
+}
+
+void PoseEstimator::manageBufferSize()
+{
+    while (!state_buffer_.empty())
+    {
+        auto diff = abs((last_sample_time - state_buffer_.front().time).toMilliseconds());
+        if (diff > state_buffer_duration_)
+        {
+            this->removeStateSampleFromBufferFront();
+        }
+        else
+        {
+            return;
+        }
+    }
+}
+
+void PoseEstimator::removeStateSampleFromBufferFront()
+{
+    state_buffer_.pop_front();
+}
+
+bool PoseEstimator::findBestStateSampleInBuffer(const base::Time &time_sample, base::samples::RigidBodyState &output_state)
+{
+    // TODO: are there any other cases in which to return false ? E.g. delayed sensor measurement is to far in the past ?
+    if (state_buffer_.empty())
+    {
+        return false;
+    }
+
+    unsigned int last_time_diff = 2 * state_buffer_duration_; // ensure that initial time diff is bigger than max time_diff between now and oldest sample, kind of a hack
+    base::samples::RigidBodyState last_sample;
+    // loop through state buffer starting at the last sample. This should be faster given that the delayed sensor measurement arrives alot faster than the state buffer is buffering samples. This will be slower if time difference between sample time and current time > 0.5 * state_buffer_duration
+    for (auto rit = state_buffer_.rbegin(); rit != state_buffer_.rend(); ++rit)
+    {
+        auto sample = *rit;
+        auto diff = abs((time_sample - sample.time).toMilliseconds());
+        if (diff < last_time_diff)
+        {
+            last_time_diff = diff;
+            last_sample = sample;
+        }
+        else
+        {
+            output_state = last_sample;
+            return true;
+        }
+    }
+    return false;
+}
+
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See PoseEstimator.hpp for more detailed
 // documentation about them.
@@ -787,6 +861,8 @@ bool PoseEstimator::configureHook()
 
     // register known landmarks
     registerKnownLandmarks(_filter_config.value().visual_landmarks, nav_in_nwu);
+
+    state_buffer_duration_ = _state_buffer_duration.value();
 
     return true;
 }

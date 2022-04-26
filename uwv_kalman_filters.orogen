@@ -114,6 +114,9 @@ task_context "PoseEstimator" do
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
 
+    # max time duration in milliseconds for which previous states are being buffered, e.g. max expected delay of some sensor readings plus some extra
+    property( "state_buffer_duration", "unsigned int", 2500 )
+
 
     #******************************
     #******* Input Ports **********
