@@ -80,6 +80,7 @@ namespace uwv_kalman_filters
         CameraConfiguration camera_config;
 
         unsigned int state_buffer_duration_;
+        unsigned int max_time_diff_to_state_;
         // buffers previous states as RigidBodyState (thus with timestamp), will be used to allow integration of delayed sensor measurements
         std::deque<base::samples::RigidBodyState> state_buffer_;
 

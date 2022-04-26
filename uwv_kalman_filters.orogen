@@ -116,6 +116,8 @@ task_context "PoseEstimator" do
 
     # max time duration in milliseconds for which previous states are being buffered, e.g. max expected delay of some sensor readings plus some extra
     property( "state_buffer_duration", "unsigned int", 2500 )
+    # max time difference between a delayed sensor measurement time stamp and the matched previous state estimate time stamp in milliseconds
+    property( "max_time_diff_to_state", "unsigned int", 100 )
 
 
     #******************************

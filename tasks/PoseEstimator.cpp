@@ -799,6 +799,8 @@ bool PoseEstimator::findBestStateSampleInBuffer(const base::Time &time_sample, b
         }
         else
         {
+            if (last_time_diff > max_time_diff_to_state_)
+                return false;
             output_state = last_sample;
             return true;
         }
@@ -863,6 +865,7 @@ bool PoseEstimator::configureHook()
     registerKnownLandmarks(_filter_config.value().visual_landmarks, nav_in_nwu);
 
     state_buffer_duration_ = _state_buffer_duration.value();
+    max_time_diff_to_state_ = _max_time_diff_to_state.value();
 
     return true;
 }
