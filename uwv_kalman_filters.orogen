@@ -63,7 +63,6 @@ task_context "VelocityProvider" do
     # timestamped samples of the current estimated velocity of the robot
     output_port( "velocity_samples", "/base/samples/RigidBodyState" )
 
-
     #******************************
     #** Aggregator Parameters ***** 
     #******************************
@@ -113,6 +112,10 @@ task_context "PoseEstimator" do
 
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
+    
+    # Maximum possible delay for the delayed xy position samples
+    # Note this musst be >0 if the delayed xy position samples input is used.
+    property( "max_delay_pos_measurement", "double", 0.0 )
 
     # max time duration in milliseconds for which previous states are being buffered, e.g. max expected delay of some sensor readings plus some extra
     property( "state_buffer_duration", "unsigned int", 2500 )
@@ -174,6 +177,10 @@ task_context "PoseEstimator" do
     input_port( "apriltags_marker_poses_stamped", "/apriltags/MarkerPosesStamped" ).
         needs_reliable_connection
         
+    # Delayed position samples from an absolut source (e.g. USBL) expressed in the navigation frame
+    input_port( "delayed_xy_position_samples", "/base/samples/RigidBodyState" ).
+        needs_reliable_connection
+        
     #******************************
     #******* Output Ports *********
     #******************************
@@ -230,8 +237,8 @@ end
 #
 # This filter estimates the distance and normal of a bottom surface.
 # It must receive dead reckoning pose samples and DVL based range measurements.
-# The output of the filter is the distance to the ground with respect to the current body position
-# and the normal of the surface.
+# The output of the filter is the normal of the surface and the distance to the
+# ground with respect to the current body position.
 # Note: Since only the distance as absolute value is estimated it is not
 # provided in the body frame, only with respect to the body position disregarding the orientation.
 #
