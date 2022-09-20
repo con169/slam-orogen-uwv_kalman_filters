@@ -476,12 +476,12 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
         return;
     }
 
-    for (auto marker_pose : marker_poses_stamped_samples.marker_poses)
+    Eigen::Affine3d imu_in_nwu_final;
+    for (size_t i = 0; i < marker_poses_stamped_samples.marker_poses.size(); i++)
     {
-        PoseUKF::XY_Position measurement;
         // TODO check if sourceFrame is correct to receive the tag id
         std::string erase = "_frame";
-        std::string marker_id = marker_pose.sourceFrame;
+        std::string marker_id = marker_poses_stamped_samples.marker_poses[i].sourceFrame;
         marker_id = marker_id.erase(marker_id.find(erase), erase.length());
         // PoseUKF::State current_state;
         // if (pose_filter->getCurrentState(current_state))
@@ -501,23 +501,28 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
             continue;
         }
         Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
-        Eigen::Affine3d markerInImu = cameraInIMU * marker_pose.getTransform();
+        Eigen::Affine3d markerInImu = cameraInIMU * marker_poses_stamped_samples.marker_poses[i].getTransform();
 
         Eigen::Affine3d ImuInNWU_measurement = landmark->second.marker_pose * markerInImu.inverse(); // landmark->second.marker_pose * marker_pose.getTransform().inverse() * cameraInBody.inverse() * imu_in_body;
 
         // std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
 
-        measurement.mu = ImuInNWU_measurement.translation().head<2>();
-        measurement.cov = landmark->second.cov_marker_pose.topLeftCorner(2, 2);
-        try
+        // TODO: Average pose estimate based on marker pose reading
+        if (i == 0)
         {
-            pose_filter->integrateMeasurement(measurement);
+            imu_in_nwu_final = ImuInNWU_measurement;
         }
-        catch (const std::runtime_error &e)
+        else
         {
-            LOG_ERROR_S << "Failed to integrate 2D position measurement: " << e.what();
+            imu_in_nwu_final.translation() = (imu_in_nwu_final.translation() + ImuInNWU_measurement.translation()) / 2;
+            Eigen::Quaterniond q_1(imu_in_nwu_final.rotation());
+            Eigen::Quaterniond q_2(ImuInNWU_measurement.rotation());
+            imu_in_nwu_final.linear() = q_1.slerp(0.5, q_2).toRotationMatrix();
         }
     }
+    // Reset Pose Filter based on marker measurement
+    // TODO: This whole resetting thingy should be handled either by internal ukf or by something like a RLS Filter as described in https://www.researchgate.net/publication/330591847_Long-Duration_Autonomy_for_Small_Rotorcraft_UAS_Including_Recharging
+    pose_filter->resetFilterWithExternalPose(imu_in_nwu_final);
 }
 
 void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
