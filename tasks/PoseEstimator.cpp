@@ -312,20 +312,31 @@ void PoseEstimator::usbl_samplesTransformerCallback(const base::Time &ts, const 
         base::samples::RigidBodyState delayed_state;
         if (!this->findBestStateSampleInBuffer(usbl_sample.time, delayed_state))
             return;
-
-        base::samples::RigidBodyState rbs_usbl_sample = usbl_sample;
-        rbs_usbl_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
-
+        
+        Eigen::Affine3d delayed_usblM_in_nav = delayed_state.getTransform() * usblModemInBody;
+        Eigen::Affine3d delayed_usblM_in_base = usblBaseInNav.inverse() * delayed_usblM_in_nav;
+        delayed_state.setTransform(delayed_usblM_in_base);
         base::samples::RigidBodyState pose_sample;
-        pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation()); // only position part is necessary
+        pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
+        pose_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
+        Eigen::Affine3d current_usblM_in_nav = pose_sample.getTransform() * usblModemInBody;
+        Eigen::Affine3d current_usblM_in_base = usblBaseInNav.inverse() * current_usblM_in_nav;
+        pose_sample.setTransform(current_usblM_in_base);
 
+        base::samples::RigidBodyState rbs_usbl_sample = usbl_sample; // usblMinUSBLBase
         // add moved distance between point where measurement was taken and current pose to measured position sample
         rbs_usbl_sample.position += delayed_state.position - pose_sample.position;
-
+        rbs_usbl_sample.orientation = current_usblM_in_base.rotation();
+        
         Eigen::Affine3d usblM_in_nav = usblBaseInNav * rbs_usbl_sample.getTransform();
+        if (usblM_in_nav.translation().z() >= usblBaseInNav.translation().z())
+            return; // simple outlier rejection, if modem over base, then there is a high probability for outliers
         Eigen::Affine3d body_in_nav = usblM_in_nav * usblModemInBody.inverse();
+        //rbs_usbl_sample.setTransform(body_in_nav);
+        
         std::cout << "USBL Body in Nav measurement: " << body_in_nav.translation() << std::endl;
-        Eigen::Affine3d imu_in_nav = body_in_nav * imu_in_body;
+        Eigen::Affine3d imu_in_nav = body_in_nav;
+        imu_in_nav.translation() -= body_in_nav.rotation() * imu_in_body.translation();
         Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
 
         // TODO: Merge to XYZ Position ?
@@ -333,12 +344,12 @@ void PoseEstimator::usbl_samplesTransformerCallback(const base::Time &ts, const 
         PoseUKF::Z_Position z_measurement;
         xy_measurement.mu = imu_in_nwu.translation().head<2>();
         // TODO: this is only a hack, it should be passed by the usbl driver
-        Eigen::Matrix2d xy_cov;
-        xy_cov(0, 0) = 0.2;
-        xy_cov(0, 1) = 0.;
-        xy_cov(1, 0) = 0.;
-        xy_cov(1, 1) = 0.2;
-        xy_measurement.cov = xy_cov;
+        // Eigen::Matrix2d xy_cov;
+        // xy_cov(0, 0) = 0.2;
+        // xy_cov(0, 1) = 0.;
+        // xy_cov(1, 0) = 0.;
+        // xy_cov(1, 1) = 0.2;
+        xy_measurement.cov = usbl_sample.cov_position.topLeftCorner(2,2);
         z_measurement.mu = imu_in_nwu.translation().tail<1>();
         Eigen::Matrix<double, 1, 1> z_cov;
         z_cov(0, 0) = 0.2;
@@ -347,7 +358,7 @@ void PoseEstimator::usbl_samplesTransformerCallback(const base::Time &ts, const 
         try
         {
             pose_filter->integrateMeasurement(xy_measurement);
-            pose_filter->integrateMeasurement(z_measurement);
+            //pose_filter->integrateMeasurement(z_measurement);
         }
         catch (const std::runtime_error &e)
         {
@@ -428,7 +439,8 @@ void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time &ts, c
         new_state = MISSING_TRANSFORMATION;
         return;
     }
-    Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
+    Eigen::Affine3d cameraInIMU = cameraInBody;
+    cameraInIMU.translation() += imu_in_body.translation();
 
     for (unsigned i = 0; i < visual_features_samples.feature_points.size(); i++)
     {
@@ -500,6 +512,7 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
             std::cout << "Marker with ID " << marker_id << " is unknown. Measurements will be skipped." << std::endl;
             continue;
         }
+        if (marker_poses_stamped_samples.marker_poses[i].position[2] > 2.) continue; //temporary
         Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
         Eigen::Affine3d markerInImu = cameraInIMU * marker_poses_stamped_samples.marker_poses[i].getTransform();
 
@@ -514,12 +527,16 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
         }
         else
         {
+            std::cout << "Before Averaging: " << imu_in_nwu_final.translation() << std::endl;
             imu_in_nwu_final.translation() = (imu_in_nwu_final.translation() + ImuInNWU_measurement.translation()) / 2;
+            std::cout << "After Averaging: " << imu_in_nwu_final.translation() << std::endl;
             Eigen::Quaterniond q_1(imu_in_nwu_final.rotation());
             Eigen::Quaterniond q_2(ImuInNWU_measurement.rotation());
             imu_in_nwu_final.linear() = q_1.slerp(0.5, q_2).toRotationMatrix();
         }
     }
+    std::cout << "Final t: " << imu_in_nwu_final.translation() << std::endl;
+    std::cout << "Final r: " << imu_in_nwu_final.rotation() << std::endl;
     // Reset Pose Filter based on marker measurement
     // TODO: This whole resetting thingy should be handled either by internal ukf or by something like a RLS Filter as described in https://www.researchgate.net/publication/330591847_Long-Duration_Autonomy_for_Small_Rotorcraft_UAS_Including_Recharging
     pose_filter->resetFilterWithExternalPose(imu_in_nwu_final);
@@ -765,6 +782,7 @@ bool PoseEstimator::configureHook()
 {
     if (!PoseEstimatorBase::configureHook())
         return false;
+    
 
     // get IMU to body transformation
     if (!_imu2body.get(base::Time(), imu_in_body))
@@ -814,6 +832,7 @@ bool PoseEstimator::configureHook()
     registerKnownLandmarks(_filter_config.value().visual_landmarks, nav_in_nwu);
 
     state_buffer_duration_ = _state_buffer_duration.value();
+    state_buffer_.resize(state_buffer_duration);
     max_time_diff_to_state_ = _max_time_diff_to_state.value();
 
     return true;
