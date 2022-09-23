@@ -598,7 +598,8 @@ void PoseEstimator::writeEstimatedState()
     base::Time current_sample_time = base::Time::fromMicroseconds(pose_filter->getLastMeasurementTime());
     if (current_sample_time > last_sample_time && pose_filter->getCurrentState(current_state, state_cov))
     {
-        /* Transform filter state from IMU in NWU aligned navigation frame to
+        /* The pose filter State is in body-aligned IMU in NWU frame, which means that it is translated to IMU, but rotation is body-aligned (e.g. x-forward looking) */
+        /* Transform filter state from body-aligned IMU in NWU aligned navigation frame to
          * body in navigation frame */
         base::samples::RigidBodyState pose_sample;
         pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
