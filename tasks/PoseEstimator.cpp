@@ -289,72 +289,72 @@ void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts,
     }
 }
 
-void PoseEstimator::usbl_samplesTransformerCallback(const base::Time &ts, const base::samples::RigidBodyState &usbl_sample)
-{
-    Eigen::Affine3d usblModemInBody;
-    Eigen::Affine3d usblBaseInNav;
-    if (!_usbl_modem2body.get(ts, usblModemInBody))
-    {
-        LOG_ERROR_S << "skip, couldn't receive a valid usbl_modem-in-body transformation sample!";
-        new_state = MISSING_TRANSFORMATION;
-        return;
-    }
-    if (!_usbl_base2navigation.get(ts, usblBaseInNav))
-    {
-        LOG_ERROR_S << "skip, couldn't receive a valid usbl_base-in-nav transformation sample!";
-        new_state = MISSING_TRANSFORMATION;
-        return;
-    }
+// void PoseEstimator::usbl_samplesTransformerCallback(const base::Time &ts, const base::samples::RigidBodyState &usbl_sample)
+// {
+//     Eigen::Affine3d usblModemInBody;
+//     Eigen::Affine3d usblBaseInNav;
+//     if (!_usbl_modem2body.get(ts, usblModemInBody))
+//     {
+//         LOG_ERROR_S << "skip, couldn't receive a valid usbl_modem-in-body transformation sample!";
+//         new_state = MISSING_TRANSFORMATION;
+//         return;
+//     }
+//     if (!_usbl_base2navigation.get(ts, usblBaseInNav))
+//     {
+//         LOG_ERROR_S << "skip, couldn't receive a valid usbl_base-in-nav transformation sample!";
+//         new_state = MISSING_TRANSFORMATION;
+//         return;
+//     }
 
-    PoseUKF::State current_state;
-    if (pose_filter->getCurrentState(current_state))
-    {
-        base::samples::RigidBodyState delayed_state;
-        if (!this->findBestStateSampleInBuffer(usbl_sample.time, delayed_state))
-            return;
+//     PoseUKF::State current_state;
+//     if (pose_filter->getCurrentState(current_state))
+//     {
+//         base::samples::RigidBodyState delayed_state;
+//         if (!this->findBestStateSampleInBuffer(usbl_sample.time, delayed_state))
+//             return;
 
-        base::samples::RigidBodyState rbs_usbl_sample = usbl_sample;
-        rbs_usbl_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
+//         base::samples::RigidBodyState rbs_usbl_sample = usbl_sample;
+//         rbs_usbl_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
 
-        base::samples::RigidBodyState pose_sample;
-        pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation()); // only position part is necessary
+//         base::samples::RigidBodyState pose_sample;
+//         pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation()); // only position part is necessary
 
-        // add moved distance between point where measurement was taken and current pose to measured position sample
-        rbs_usbl_sample.position += delayed_state.position - pose_sample.position;
+//         // add moved distance between point where measurement was taken and current pose to measured position sample
+//         rbs_usbl_sample.position += delayed_state.position - pose_sample.position;
 
-        Eigen::Affine3d usblM_in_nav = usblBaseInNav * rbs_usbl_sample.getTransform();
-        Eigen::Affine3d body_in_nav = usblM_in_nav * usblModemInBody.inverse();
-        std::cout << "USBL Body in Nav measurement: " << body_in_nav.translation() << std::endl;
-        Eigen::Affine3d imu_in_nav = body_in_nav * imu_in_body;
-        Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
+//         Eigen::Affine3d usblM_in_nav = usblBaseInNav * rbs_usbl_sample.getTransform();
+//         Eigen::Affine3d body_in_nav = usblM_in_nav * usblModemInBody.inverse();
+//         std::cout << "USBL Body in Nav measurement: " << body_in_nav.translation() << std::endl;
+//         Eigen::Affine3d imu_in_nav = body_in_nav * imu_in_body;
+//         Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
 
-        // TODO: Merge to XYZ Position ?
-        PoseUKF::XY_Position xy_measurement;
-        PoseUKF::Z_Position z_measurement;
-        xy_measurement.mu = imu_in_nwu.translation().head<2>();
-        // TODO: this is only a hack, it should be passed by the usbl driver
-        Eigen::Matrix2d xy_cov;
-        xy_cov(0, 0) = 0.2;
-        xy_cov(0, 1) = 0.;
-        xy_cov(1, 0) = 0.;
-        xy_cov(1, 1) = 0.2;
-        xy_measurement.cov = xy_cov;
-        z_measurement.mu = imu_in_nwu.translation().tail<1>();
-        Eigen::Matrix<double, 1, 1> z_cov;
-        z_cov(0, 0) = 0.2;
-        z_measurement.cov = z_cov;
+//         // TODO: Merge to XYZ Position ?
+//         PoseUKF::XY_Position xy_measurement;
+//         PoseUKF::Z_Position z_measurement;
+//         xy_measurement.mu = imu_in_nwu.translation().head<2>();
+//         // TODO: this is only a hack, it should be passed by the usbl driver
+//         Eigen::Matrix2d xy_cov;
+//         xy_cov(0, 0) = 0.2;
+//         xy_cov(0, 1) = 0.;
+//         xy_cov(1, 0) = 0.;
+//         xy_cov(1, 1) = 0.2;
+//         xy_measurement.cov = xy_cov;
+//         z_measurement.mu = imu_in_nwu.translation().tail<1>();
+//         Eigen::Matrix<double, 1, 1> z_cov;
+//         z_cov(0, 0) = 0.2;
+//         z_measurement.cov = z_cov;
 
-        try
-        {
-            pose_filter->integrateMeasurement(xy_measurement);
-            pose_filter->integrateMeasurement(z_measurement);
-        }
-        catch (const std::runtime_error &e)
-        {
-            LOG_ERROR_S << "Failed to integrate USBL Position measurement: " << e.what();
-        }
-    }
-}
+//         try
+//         {
+//             pose_filter->integrateMeasurement(xy_measurement);
+//             pose_filter->integrateMeasurement(z_measurement);
+//         }
+//         catch (const std::runtime_error &e)
+//         {
+//             LOG_ERROR_S << "Failed to integrate USBL Position measurement: " << e.what();
+//         }
+//     }
+// }
 
 void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time &ts, const base::samples::RigidBodyState &gps_position_samples_sample)
 {
@@ -525,36 +525,94 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
     pose_filter->resetFilterWithExternalPose(imu_in_nwu_final);
 }
 
+// void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
+// {
+//     base::samples::RigidBodyState rbs;
+//     while (_delayed_xy_position_samples.read(rbs) == RTT::NewData)
+//     {
+//         delayed_position_samples.push_back(rbs);
+//     }
+
+//     while (!delayed_position_samples.empty() && delayed_position_samples.front().time < ts)
+//     {
+//         // NOTE Currently the displacement from the delayed sensor position to the IMU frame is disregarded.
+//         // apply xy measurement
+//         PoseUKF::XY_Position measurement;
+//         measurement.mu = nav_in_nwu_2d * delayed_position_samples.front().position.head<2>();
+//         measurement.cov = nav_in_nwu_2d.linear() * delayed_position_samples.front().cov_position.topLeftCorner(2, 2) * nav_in_nwu_2d.linear().transpose();
+
+//         try
+//         {
+//             double delay = (ts - delayed_position_samples.front().time).toSeconds();
+//             if (!pose_filter->integrateDelayedMeasurement(measurement, delay))
+//             {
+//                 LOG_ERROR_S << "Failed to integrate delayed 2D position measurement: Maximum delay exceeded (" << delay << " seconds).";
+//             }
+//         }
+//         catch (const std::runtime_error &e)
+//         {
+//             LOG_ERROR_S << "Failed to integrate delayed 2D position measurement: " << e.what();
+//         }
+
+//         delayed_position_samples.pop_front();
+//     }
+// }
+
 void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
 {
-    base::samples::RigidBodyState rbs;
-    while (_delayed_xy_position_samples.read(rbs) == RTT::NewData)
+    base::samples::RigidBodyState delayed_sample;
+    std::vector<base::samples::RigidBodyState> delayed_position_samples;
+    while (_delayed_xy_position_samples.read(delayed_sample) == RTT::NewData)
     {
-        delayed_position_samples.push_back(rbs);
+        delayed_position_samples.push_back(delayed_sample);
     }
 
-    while (!delayed_position_samples.empty() && delayed_position_samples.front().time < ts)
+    Eigen::Affine3d usblModemInImu;
+    Eigen::Affine3d usblBaseInNav;
+    if (!_usbl_modem2body.get(ts, usblModemInImu))
     {
-        // NOTE Currently the displacement from the delayed sensor position to the IMU frame is disregarded.
-        // apply xy measurement
-        PoseUKF::XY_Position measurement;
-        measurement.mu = nav_in_nwu_2d * delayed_position_samples.front().position.head<2>();
-        measurement.cov = nav_in_nwu_2d.linear() * delayed_position_samples.front().cov_position.topLeftCorner(2, 2) * nav_in_nwu_2d.linear().transpose();
+        LOG_ERROR_S << "skip, couldn't receive a valid usbl_modem-in-body transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+    usblModemInImu.translation() -= imu_in_body.translation();
+    if (!_usbl_base2navigation.get(ts, usblBaseInNav))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid usbl_base-in-nav transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+
+    for (auto delayed : delayed_position_samples)
+    {
+        base::samples::RigidBodyState delayed_state;
+        if (!this->findBestStateSampleInBuffer(delayed.time, delayed_state))
+            return;
+
+        delayed.orientation = nwu_in_nav.rotation() * delayed_state.orientation;
+
+        Eigen::Affine3d usblM_in_nav = usblBaseInNav * delayed.getTransform();
+        Eigen::Affine3d imu_in_nav = usblM_in_nav * usblModemInImu.inverse();
+        Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
+
+        PoseUKF::XY_Position xy_measurement;
+        xy_measurement.mu = imu_in_nwu.translation().head<2>();
+        // TODO: this is only a hack, it should be passed by the usbl driver
+        Eigen::Matrix2d xy_cov;
+        xy_cov(0, 0) = 0.2;
+        xy_cov(0, 1) = 0.;
+        xy_cov(1, 0) = 0.;
+        xy_cov(1, 1) = 0.2;
+        xy_measurement.cov = xy_cov;
 
         try
         {
-            double delay = (ts - delayed_position_samples.front().time).toSeconds();
-            if (!pose_filter->integrateDelayedMeasurement(measurement, delay))
-            {
-                LOG_ERROR_S << "Failed to integrate delayed 2D position measurement: Maximum delay exceeded (" << delay << " seconds).";
-            }
+            pose_filter->integrateDelayedPositionMeasurement(xy_measurement, delayed_state.position.head<2>());
         }
         catch (const std::runtime_error &e)
         {
-            LOG_ERROR_S << "Failed to integrate delayed 2D position measurement: " << e.what();
+            LOG_ERROR_S << "Failed to integrate USBL Position measurement: " << e.what();
         }
-
-        delayed_position_samples.pop_front();
     }
 }
 
@@ -570,7 +628,7 @@ void PoseEstimator::predictionStep(const base::Time &sample_time)
         LOG_ERROR_S << "Skipping prediction step.";
     }
 
-    integrateDelayedPositionSamples(sample_time);
+    // integrateDelayedPositionSamples(sample_time);
 }
 
 void PoseEstimator::writeEstimatedState()
@@ -833,11 +891,11 @@ bool PoseEstimator::startHook()
 
     pose_filter->setMaxTimeDelta(_max_time_delta.get());
 
-    // setup delayed state buffer
-    if (_max_delay_pos_measurement.rvalue() > 0)
-    {
-        pose_filter->setupDelayedStateBuffer(_max_delay_pos_measurement.rvalue());
-    }
+    // // setup delayed state buffer
+    // if (_max_delay_pos_measurement.rvalue() > 0)
+    // {
+    //     pose_filter->setupDelayedStateBuffer(_max_delay_pos_measurement.rvalue());
+    // }
 
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());

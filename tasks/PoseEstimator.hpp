@@ -78,7 +78,6 @@ namespace uwv_kalman_filters
         bool body_efforts_unknown;
         std::map<std::string, VisualMarker> known_landmarks;
         CameraConfiguration camera_config;
-        std::list<base::samples::RigidBodyState> delayed_position_samples;
 
         unsigned int state_buffer_duration_;
         unsigned int max_time_diff_to_state_;
@@ -101,14 +100,14 @@ namespace uwv_kalman_filters
 
         virtual void xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample);
 
-        virtual void usbl_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &usbl_sample);
+        // virtual void usbl_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &usbl_sample);
 
         virtual void gps_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &gps_position_samples_sample);
 
         virtual void gps_samplesTransformerCallback(const base::Time &ts, const ::gps_base::Solution &gps_samples_sample);
 
         virtual void apriltag_featuresTransformerCallback(const base::Time &ts, const ::apriltags::VisualFeaturePoints &visual_features_samples);
-        
+
         void integrateDelayedPositionSamples(const base::Time &ts);
 
         virtual void apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const ::apriltags::MarkerPosesStamped &marker_poses_stamped_samples);
