@@ -625,7 +625,8 @@ void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
 
         try
         {
-            pose_filter->integrateDelayedPositionMeasurement(xy_measurement, delayed_state.position.head<2>());
+            // pose_filter->integrateDelayedPositionMeasurement(xy_measurement, delayed_state.position.head<2>());
+            pose_filter->integrateDelayedPositionMeasurementWithStateAugmentation(xy_measurement, delayed_state.position.head<2>(), delayed_state.cov_position.topLeftCorner<2, 2>());
         }
         catch (const std::runtime_error &e)
         {
@@ -646,7 +647,7 @@ void PoseEstimator::predictionStep(const base::Time &sample_time)
         LOG_ERROR_S << "Skipping prediction step.";
     }
 
-    // integrateDelayedPositionSamples(sample_time);
+    integrateDelayedPositionSamples(sample_time);
 }
 
 void PoseEstimator::writeEstimatedState()
@@ -891,7 +892,7 @@ bool PoseEstimator::configureHook()
     registerKnownLandmarks(_filter_config.value().visual_landmarks, nav_in_nwu);
 
     state_buffer_duration_ = _state_buffer_duration.value();
-    state_buffer_.resize(state_buffer_duration);
+    state_buffer_.resize(state_buffer_duration_);
     max_time_diff_to_state_ = _max_time_diff_to_state.value();
 
     return true;
