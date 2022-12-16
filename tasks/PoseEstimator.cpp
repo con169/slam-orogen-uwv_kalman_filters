@@ -440,7 +440,7 @@ void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time &ts, c
         return;
     }
     Eigen::Affine3d cameraInIMU = cameraInBody;
-    cameraInIMU.translation() += imu_in_body.translation();
+    cameraInIMU.translation() -= imu_in_body.translation();
 
     for (unsigned i = 0; i < visual_features_samples.feature_points.size(); i++)
     {
