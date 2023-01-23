@@ -9,6 +9,7 @@
 #include <base/samples/RigidBodyState.hpp>
 #include <base/samples/IMUSensors.hpp>
 #include <uwv_kalman_filters/PoseUKFConfig.hpp>
+#include <uwv_kalman_filters/PoseUKF.hpp>
 #include <gps_base/BaseTypes.hpp>
 #include <dvl_teledyne/PD0Messages.hpp>
 #include <deque>
@@ -81,8 +82,8 @@ namespace uwv_kalman_filters
 
         unsigned int state_buffer_duration_;
         unsigned int max_time_diff_to_state_;
-        // buffers previous states as RigidBodyState (thus with timestamp), will be used to allow integration of delayed sensor measurements
-        std::deque<base::samples::RigidBodyState> state_buffer_;
+        // buffers previous states as pair of timestamp and State, will be used to allow integration of delayed sensor measurements
+        std::deque<std::pair<base::Time, PoseUKF::State>> state_buffer_;
 
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample);
 
@@ -110,8 +111,6 @@ namespace uwv_kalman_filters
 
         void integrateDelayedPositionSamples(const base::Time &ts);
 
-        virtual void apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const ::apriltags::MarkerPosesStamped &marker_poses_stamped_samples);
-
         void predictionStep(const base::Time &sample_time);
 
         void writeEstimatedState();
@@ -129,7 +128,7 @@ namespace uwv_kalman_filters
          *
          * @param state
          */
-        void addStateToBuffer(const base::samples::RigidBodyState &state);
+        void addStateToBuffer(base::Time &timestamp, PoseUKF::State &state);
         /**
          * @brief Manages Buffer size. Iterates through buffer from the front, removing objects that have exceeded state_buffer_duration time
          *
@@ -143,7 +142,7 @@ namespace uwv_kalman_filters
          * @return true state found
          * @return false no state found, in this case there are no past samples available (e.g. state_buffer_.empty())
          */
-        bool findBestStateSampleInBuffer(const base::Time &time_sample, base::samples::RigidBodyState &output_state);
+        bool findBestStateSampleInBuffer(const base::Time &time_sample, PoseUKF::State &output_state);
         /**
          * @brief Removes sample from Buffer front (in this case pop_front())
          *
