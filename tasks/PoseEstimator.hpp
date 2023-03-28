@@ -86,6 +86,8 @@ namespace uwv_kalman_filters
 
         // this is used for simple dvl outlier rejection
         base::Time last_dvl_sample_time_;
+        base::Time last_usbl_sample_time_;
+        Eigen::Vector3d last_usbl_sample_;
         double last_linear_velocity_norm_;
 
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample);

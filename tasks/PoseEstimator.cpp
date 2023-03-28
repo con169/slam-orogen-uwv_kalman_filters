@@ -81,7 +81,8 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
             last_linear_velocity_norm_ = velocity.norm();
             LOG_ERROR_S << "This is the first DVL sample, or last DVL measurement was " << diff.toSeconds() << " seconds";
             return;
-        } else
+        }
+        else
         {
             auto diff = fabs(velocity.norm() - last_linear_velocity_norm_);
             last_linear_velocity_norm_ = velocity.norm();
@@ -627,20 +628,45 @@ void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
 
     for (auto delayed : delayed_position_samples)
     {
+        // outlier rejection
+        auto diff = delayed.time - last_usbl_sample_time_;
+        if (last_usbl_sample_time_.isNull() || diff.toSeconds() > _max_time_diff_usbl.value())
+        {
+            // last dvl is some time ago, so reject this one
+            last_usbl_sample_time_ = delayed.time;
+            last_usbl_sample_ = delayed.position;
+            LOG_ERROR_S << "This is the first USBL sample, or last USBL measurement was " << diff.toSeconds() << " seconds";
+            return;
+        }
+        else
+        {
+            auto diff = fabs((delayed.position - last_usbl_sample_).norm());
+            auto time_diff = (delayed.time - last_usbl_sample_time_).toSeconds();
+            last_usbl_sample_time_ = delayed.time;
+            last_usbl_sample_ = delayed.position;
+
+            if (diff > time_diff * _max_velocity.value())
+            {
+                // reject
+                LOG_ERROR_S << "Rejecting USBL Sample with moved distance of: " << diff << " in " << time_diff << " seconds.";
+                return;
+            }
+        }
+
         base::samples::RigidBodyState delayed_state;
         if (!this->findBestStateSampleInBuffer(delayed.time, delayed_state))
             return;
 
-        delayed.orientation = nwu_in_nav.rotation() * delayed_state.orientation;
-
-        Eigen::Affine3d usblM_in_nav = usblBaseInNav * delayed.getTransform();
-        if (usblM_in_nav.translation().z() >= usblBaseInNav.translation().z())
-                return;
-        Eigen::Affine3d imu_in_nav = usblM_in_nav * usblModemInImu.inverse();
-        Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
+        delayed.orientation = delayed_state.orientation;
+        Eigen::Affine3d usblBaseInNWU = nav_in_nwu * usblBaseInNav;
+        Eigen::Vector3d usblM_in_nwu = usblBaseInNWU * delayed.position;
+        // if (usblM_in_nav.translation().z() >= usblBaseInNav.translation().z())
+        //     return;
+        Eigen::Vector3d imu_in_nwu = usblM_in_nwu - delayed.orientation * usblModemInImu.translation();
+        // Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
 
         PoseUKF::XY_Position xy_measurement;
-        xy_measurement.mu = imu_in_nwu.translation().head<2>();
+        xy_measurement.mu = imu_in_nwu.head<2>();
         // TODO: this is only a hack, it should be passed by the usbl driver
         Eigen::Matrix2d xy_cov;
         xy_cov(0, 0) = 0.2;
@@ -651,8 +677,7 @@ void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
 
         try
         {
-            // pose_filter->integrateDelayedPositionMeasurement(xy_measurement, delayed_state.position.head<2>());
-            pose_filter->integrateDelayedPositionMeasurementWithStateAugmentation(xy_measurement, delayed_state.position.head<2>(), delayed_state.cov_position.topLeftCorner<2, 2>());
+            pose_filter->integrateDelayedPositionMeasurement(xy_measurement, delayed_state.position.head<2>());
         }
         catch (const std::runtime_error &e)
         {
@@ -701,7 +726,11 @@ void PoseEstimator::writeEstimatedState()
         pose_sample.sourceFrame = _body_frame.value();
         _pose_samples.write(pose_sample);
 
-        this->addStateToBuffer(pose_sample);
+        base::samples::RigidBodyState pose_sample_nwu;
+        pose_sample_nwu.position = current_state.position;
+        pose_sample_nwu.orientation = current_state.orientation;
+        pose_sample_nwu.time = current_sample_time;
+        this->addStateToBuffer(pose_sample_nwu);
 
         SecondaryStates secondary_states;
         secondary_states.acceleration = nwu_in_nav.rotation() * current_state.acceleration;
@@ -939,12 +968,6 @@ bool PoseEstimator::startHook()
         return false;
 
     pose_filter->setMaxTimeDelta(_max_time_delta.get());
-
-    // // setup delayed state buffer
-    // if (_max_delay_pos_measurement.rvalue() > 0)
-    // {
-    //     pose_filter->setupDelayedStateBuffer(_max_delay_pos_measurement.rvalue());
-    // }
 
     // setup stream alignment verifier
     verifier.reset(new pose_estimation::StreamAlignmentVerifier());

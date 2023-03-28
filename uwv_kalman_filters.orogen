@@ -113,9 +113,6 @@ task_context "PoseEstimator" do
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
     
-    # Maximum possible delay for the delayed xy position samples
-    # Note this musst be >0 if the delayed xy position samples input is used.
-    property( "max_delay_pos_measurement", "double", 0.0 )
 
     # max time duration in milliseconds for which previous states are being buffered, e.g. max expected delay of some sensor readings plus some extra
     property( "state_buffer_duration", "unsigned int", 500 )
@@ -125,6 +122,11 @@ task_context "PoseEstimator" do
     property( "max_velocity_change_between_samples", "double", 3.0 )
     # max time difference in seconds between two DVL measurements to be considered consecutive measurements. If time diff between last dvl and current dvl reading > max_time_diff_dvl, then the DVL measurement is automatically rejected
     property( "max_time_diff_dvl", "double", 1.0 )
+
+    # max velocity of the vehicle in m/s (when calculating norm of velocity, this is kinda hacky and should be interfered from hydrodynamic model of the vehicle)
+    property( "max_velocity", "double", 3.0 )
+    # max time difference in seconds between two USBL measurements to be considered consecutive measurements. If time diff between last usbl and current usbl reading > max_time_diff_usbl, then the usb measurement is automatically rejected
+    property( "max_time_diff_usbl", "double", 5.0 )
 
 
     #******************************
@@ -182,8 +184,7 @@ task_context "PoseEstimator" do
         needs_reliable_connection
         
     # Delayed position samples from an absolut source (e.g. USBL) expressed in the navigation frame
-    input_port( "delayed_xy_position_samples", "/base/samples/RigidBodyState" ).
-        needs_reliable_connection
+    input_port( "delayed_xy_position_samples", "/base/samples/RigidBodyState" )
         
     #******************************
     #******* Output Ports *********
