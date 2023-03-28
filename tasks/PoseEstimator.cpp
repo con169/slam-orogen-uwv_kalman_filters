@@ -228,6 +228,7 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
 
     // write current guess
     writeEstimatedState();
+    integrateDelayedPositionSamples(ts);
 }
 
 void PoseEstimator::altitude_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_sensor_samples_sample)
@@ -604,10 +605,10 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
 void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
 {
     base::samples::RigidBodyState delayed_sample;
-    std::vector<base::samples::RigidBodyState> delayed_position_samples;
+
     while (_delayed_xy_position_samples.read(delayed_sample) == RTT::NewData)
     {
-        delayed_position_samples.push_back(delayed_sample);
+        delayed_position_samples_.push_back(delayed_sample);
     }
 
     Eigen::Affine3d usblModemInImu;
@@ -626,24 +627,28 @@ void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
         return;
     }
 
-    for (auto delayed : delayed_position_samples)
+    while (!delayed_position_samples_.empty())
     {
+        if (delayed_position_samples_.front().time > state_buffer_.back().time)
+        {
+            return;
+        }
         // outlier rejection
-        auto diff = delayed.time - last_usbl_sample_time_;
+        auto diff = delayed_position_samples_.front().time - last_usbl_sample_time_;
         if (last_usbl_sample_time_.isNull() || diff.toSeconds() > _max_time_diff_usbl.value())
         {
             // last dvl is some time ago, so reject this one
-            last_usbl_sample_time_ = delayed.time;
-            last_usbl_sample_ = delayed.position;
+            last_usbl_sample_time_ = delayed_position_samples_.front().time;
+            last_usbl_sample_ = delayed_position_samples_.front().position;
             LOG_ERROR_S << "This is the first USBL sample, or last USBL measurement was " << diff.toSeconds() << " seconds";
             return;
         }
         else
         {
-            auto diff = fabs((delayed.position - last_usbl_sample_).norm());
-            auto time_diff = (delayed.time - last_usbl_sample_time_).toSeconds();
-            last_usbl_sample_time_ = delayed.time;
-            last_usbl_sample_ = delayed.position;
+            auto diff = fabs((delayed_position_samples_.front().position - last_usbl_sample_).norm());
+            auto time_diff = (delayed_position_samples_.front().time - last_usbl_sample_time_).toSeconds();
+            last_usbl_sample_time_ = delayed_position_samples_.front().time;
+            last_usbl_sample_ = delayed_position_samples_.front().position;
 
             if (diff > time_diff * _max_velocity.value())
             {
@@ -654,36 +659,37 @@ void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
         }
 
         base::samples::RigidBodyState delayed_state;
-        if (!this->findBestStateSampleInBuffer(delayed.time, delayed_state))
+        if (!this->findBestStateSampleInBuffer(delayed_position_samples_.front().time, delayed_state))
             return;
 
-        delayed.orientation = delayed_state.orientation;
+        delayed_position_samples_.front().orientation = delayed_state.orientation;
         Eigen::Affine3d usblBaseInNWU = nav_in_nwu * usblBaseInNav;
-        Eigen::Vector3d usblM_in_nwu = usblBaseInNWU * delayed.position;
+        Eigen::Vector3d usblM_in_nwu = usblBaseInNWU * delayed_position_samples_.front().position;
         // if (usblM_in_nav.translation().z() >= usblBaseInNav.translation().z())
         //     return;
-        Eigen::Vector3d imu_in_nwu = usblM_in_nwu - delayed.orientation * usblModemInImu.translation();
+        Eigen::Vector3d imu_in_nwu = usblM_in_nwu - delayed_position_samples_.front().orientation * usblModemInImu.translation();
         // Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
 
         PoseUKF::XY_Position xy_measurement;
         xy_measurement.mu = imu_in_nwu.head<2>();
         // TODO: this is only a hack, it should be passed by the usbl driver
-        Eigen::Matrix2d xy_cov;
-        xy_cov(0, 0) = 0.2;
-        xy_cov(0, 1) = 0.;
-        xy_cov(1, 0) = 0.;
-        xy_cov(1, 1) = 0.2;
-        xy_measurement.cov = xy_cov;
+
+        xy_measurement.cov = delayed_position_samples_.front().cov_position.topLeftCorner<2, 2>();
 
         try
         {
+            std::cout << "?" << std::endl;
             pose_filter->integrateDelayedPositionMeasurement(xy_measurement, delayed_state.position.head<2>());
         }
         catch (const std::runtime_error &e)
         {
             LOG_ERROR_S << "Failed to integrate USBL Position measurement: " << e.what();
         }
+        delayed_position_samples_.pop_front();
     }
+
+    // is this the correct place ?
+    this->manageBufferSize();
 }
 
 void PoseEstimator::predictionStep(const base::Time &sample_time)
@@ -697,8 +703,6 @@ void PoseEstimator::predictionStep(const base::Time &sample_time)
         LOG_ERROR_S << "Failed to execute prediction step: " << e.what();
         LOG_ERROR_S << "Skipping prediction step.";
     }
-
-    integrateDelayedPositionSamples(sample_time);
 }
 
 void PoseEstimator::writeEstimatedState()
@@ -759,7 +763,6 @@ void PoseEstimator::writeEstimatedState()
         _secondary_states.write(secondary_states);
 
         last_sample_time = current_sample_time;
-        this->manageBufferSize();
     }
 }
 
@@ -866,6 +869,7 @@ bool PoseEstimator::findBestStateSampleInBuffer(const base::Time &time_sample, b
     {
         return false;
     }
+    std::cout << time_sample.toString() << " newest state in buffer: " << state_buffer_.back().time.toString() << std::endl;
 
     unsigned int last_time_diff = 2 * state_buffer_duration_; // ensure that initial time diff is bigger than max time_diff between now and oldest sample, kind of a hack
     base::samples::RigidBodyState last_sample;
@@ -947,7 +951,7 @@ bool PoseEstimator::configureHook()
     registerKnownLandmarks(_filter_config.value().visual_landmarks, nav_in_nwu);
 
     state_buffer_duration_ = _state_buffer_duration.value();
-    state_buffer_.resize(state_buffer_duration_);
+    // state_buffer_.resize(state_buffer_duration_);
     max_time_diff_to_state_ = _max_time_diff_to_state.value();
 
     last_linear_velocity_norm_ = 0.;

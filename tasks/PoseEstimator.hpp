@@ -83,6 +83,7 @@ namespace uwv_kalman_filters
         unsigned int max_time_diff_to_state_;
         // buffers previous states as RigidBodyState (thus with timestamp), will be used to allow integration of delayed sensor measurements
         std::deque<base::samples::RigidBodyState> state_buffer_;
+        std::deque<base::samples::RigidBodyState> delayed_position_samples_;
 
         // this is used for simple dvl outlier rejection
         base::Time last_dvl_sample_time_;

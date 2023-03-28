@@ -115,7 +115,7 @@ task_context "PoseEstimator" do
     
 
     # max time duration in milliseconds for which previous states are being buffered, e.g. max expected delay of some sensor readings plus some extra
-    property( "state_buffer_duration", "unsigned int", 500 )
+    property( "state_buffer_duration", "unsigned int", 5000 )
     # max time difference between a delayed sensor measurement time stamp and the matched previous state estimate time stamp in milliseconds
     property( "max_time_diff_to_state", "unsigned int", 100 )
     # how much the linear velocity (norm) can change between two consecutive DVL samples, this allows to do some simple outlier rejection
@@ -219,13 +219,11 @@ task_context "PoseEstimator" do
         align_port("altitude_samples", 0.01)
         align_port("pressure_samples", 0.01)
         align_port("xy_position_samples", 0.1)
-       # align_port("usbl_samples", 1.0)
         align_port("gps_position_samples", 1.0)
         align_port("gps_samples", 1.0)
         align_port("water_current_samples", 0.25)
         align_port("ground_distance_samples", 0.25)
         align_port("apriltag_features", 0.1)
-        align_port("apriltags_marker_poses_stamped", 0.1)
         
         max_latency(0.2)
     end
