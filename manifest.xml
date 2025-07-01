@@ -1,0 +1,19 @@
+<package>
+  <description brief="A collection of kalman filters for underwater vehicles">
+  
+  </description>
+  <author>Sascha Arnold/sascha.arnold@dfki.de</author>
+  <license></license>
+  <url>http://</url>
+  <logo>http://</logo>
+  <depend package="base/cmake" />
+  <depend package="base/orogen/types" />
+  <depend package="base/logging" />
+  <depend package="control/orogen/uwv_dynamic_model" />
+  <depend package="slam/uwv_kalman_filters" />
+  <depend package="drivers/orogen/gps_base" />
+  <depend package="drivers/orogen/dvl_teledyne" />
+  <depend package="perception/orogen/apriltags" />
+
+  <tags>stable</tags>
+</package>
