@@ -117,6 +117,9 @@ task_context "PoseEstimator" do
     # new: link max_time_diff_dvl
     property( "max_time_diff_dvl", "double", 1.0)
 
+    # new: link max_velocity_change_between_samples
+    property( "max_velocity_change_between_samples", "double", 3.0)
+
     #******************************
     #******* Input Ports **********
     #******************************
