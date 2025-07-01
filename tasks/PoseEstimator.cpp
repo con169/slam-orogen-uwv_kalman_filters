@@ -7,7 +7,6 @@
 #include <base-logging/Logging.hpp>
 #include "uwv_kalman_filtersTypes.hpp"
 
-
 using namespace uwv_kalman_filters;
 
 typedef PoseUKF::WState FilterState;
