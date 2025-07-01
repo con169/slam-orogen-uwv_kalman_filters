@@ -71,7 +71,28 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
     {
         base::Vector3d velocity = dvlInIMU.rotation() * dvl_velocity_samples_sample.velocity;
         velocity -= pose_filter->getRotationRate().cross(dvlInIMU.translation());
-
+        
+        //outlier rejection
+        auto diff = ts - last_dvl_sample_time_;
+        if (last_dvl_sample_time_.isNull() || diff.toSeconds() > _max_time_diff_dvl.value())
+        {
+            // last dvl is some time ago so reject this one
+            last_dvl_sample_time_ = ts;
+            last_linear_velocity_norm_ = velocity.norm();
+            LOG_ERROR_S << "This is the first DVL sample, or last DVL measurement was " << diff.toSeconds() << " seconds";
+            return;
+        }
+        else
+        {
+            auto diff = fabs(velocity.norm() - last_linear_velocity_norm_);
+            last_linear_velocity_norm_ = velocity.norm();
+            last_dvl_sample_time_ = ts;
+            if (diff > _max_velocity_change_between_samples.value())
+            {
+                // reject
+                LOG_ERROR_S << "Rejecting DVL Sample with diff of: " << diff << " and velocity norm of: " << last_linear_velocity_norm_;
+            }
+        }
         // apply new velocity measurement
         PoseUKF::Velocity measurement;
         measurement.mu = velocity;
@@ -647,6 +668,7 @@ bool PoseEstimator::configureHook()
         LOG_ERROR_S << "Failed to get navigation in NWU frame. Note that this has to be a static transformation!";
         return false;
     }
+
     base::Vector3d nav_in_nwu_euler = base::getEuler(base::Orientation(nav_in_nwu.linear()));
     if(nav_in_nwu_euler.y() != 0. || nav_in_nwu_euler.z() != 0.)
     {

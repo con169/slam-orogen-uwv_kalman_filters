@@ -75,6 +75,11 @@ namespace uwv_kalman_filters{
         std::map<std::string, VisualMarker> known_landmarks;
         CameraConfiguration camera_config;
 
+        //new variables
+        base::Time last_dvl_sample_time_;
+        double last_linear_velocity_norm_;
+        //double max_diff_dvl_time;
+
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample);
 
         virtual void dvl_velocity_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &dvl_velocity_samples_sample);
