@@ -25,7 +25,8 @@ void BottomEstimator::dvl_bottom_trackingTransformerCallback(const base::Time &t
     }
 
     // set velocity
-    double delta_t = (ts - base::Time::fromMicroseconds(bottom_filter->getLastMeasurementTime())).toSeconds();
+    double delta_t = (ts - bottom_filter->getLastMeasurementTime()).toSeconds();
+    //double delta_t = 0;
     if(delta_t > bottom_filter->getMinTimeDelta())
         bottom_filter->setVelocity(delta_position / delta_t);
 
@@ -181,7 +182,7 @@ void BottomEstimator::updateHook()
     // write estimated body state
     BottomUKF::State current_state;
     BottomUKF::Covariance state_cov;
-    base::Time current_sample_time = base::Time::fromMicroseconds(bottom_filter->getLastMeasurementTime());
+    base::Time current_sample_time = bottom_filter->getLastMeasurementTime();
     if(current_sample_time > last_sample_time && bottom_filter->getCurrentState(current_state, state_cov))
     {
         base::samples::RigidBodyState ground_sample;

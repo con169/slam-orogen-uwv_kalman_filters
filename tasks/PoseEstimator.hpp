@@ -14,6 +14,8 @@
 #include <deque>
 #include <utility>
 
+#include <boost/asio.hpp>
+
 namespace pose_estimation
 {
     class StreamAlignmentVerifier;
@@ -50,6 +52,10 @@ namespace uwv_kalman_filters
         friend class PoseEstimatorBase;
 
     protected:
+        boost::asio::io_service io_service_;
+        boost::asio::ip::udp::socket socket_;
+        boost::asio::ip::udp::endpoint multicast_endpoint_;
+
         boost::shared_ptr<uwv_kalman_filters::PoseUKF> pose_filter;
         boost::shared_ptr<pose_estimation::StreamAlignmentVerifier> verifier;
         Eigen::Affine3d imu_in_body;

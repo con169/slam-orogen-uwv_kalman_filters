@@ -244,7 +244,7 @@ void VelocityProvider::updateHook()
     // write estimated body state
     VelocityUKF::State current_state;
     VelocityUKF::Covariance state_cov;
-    base::Time current_sample_time = base::Time::fromMicroseconds(velocity_filter->getLastMeasurementTime());
+    base::Time current_sample_time = velocity_filter->getLastMeasurementTime();
     if(current_sample_time > last_sample_time && velocity_filter->getCurrentState(current_state, state_cov))
     {
         base::samples::RigidBodyState velocity_sample;

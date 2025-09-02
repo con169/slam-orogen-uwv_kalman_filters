@@ -14,11 +14,13 @@ typedef PoseUKF::WState FilterState;
 
 PoseEstimator::PoseEstimator(std::string const &name)
     : PoseEstimatorBase(name)
+    , socket_(io_service_)
 {
 }
 
 PoseEstimator::PoseEstimator(std::string const &name, RTT::ExecutionEngine *engine)
     : PoseEstimatorBase(name, engine)
+    , socket_(io_service_)
 {
 }
 
@@ -65,6 +67,20 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
         new_state = MISSING_TRANSFORMATION;
         return;
     }
+    // con: 9/2/2025
+    //std::cout << dvl_velocity_samples_sample.printRBSHeaders();
+    std::cout << "dvl_velocity_samples_sample: " << dvl_velocity_samples_sample << std::endl; 
+    try {
+        std::stringstream ss;
+        ss << dvl_velocity_samples_sample;  
+        std::string message = ss.str();
+
+        socket_.send_to(boost::asio::buffer(message), multicast_endpoint_);
+    }
+    catch (const std::exception& e) {
+        LOG_ERROR_S << "Failed to send UDP message: " << e.what();
+    }
+    
     dvlInIMU.translation() -= imu_in_body.translation();
 
     if (dvl_velocity_samples_sample.hasValidVelocity() && dvl_velocity_samples_sample.hasValidVelocityCovariance())
@@ -493,18 +509,31 @@ void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time &ts, c
         try
         {
             pose_filter->integrateMeasurement(measurements, landmark->second.feature_positions,
-                                              landmark->second.marker_pose, landmark->second.cov_marker_pose,
-                                              camera_config, cameraInIMU);
+                                            landmark->second.marker_pose, landmark->second.cov_marker_pose,
+                                            camera_config, cameraInIMU);
         }
         catch (const std::runtime_error &e)
         {
             LOG_ERROR_S << "Failed to integrate visual measurement: " << e.what();
         }
-    }
+    } 
 }
 
 void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const apriltags::MarkerPosesStamped &marker_poses_stamped_samples)
 {
+    bool has_valid_poses = false;
+    for (const auto& pose : marker_poses_stamped_samples.marker_poses)
+    {
+        if (pose.hasValidPosition() && pose.hasValidOrientation())
+        {
+            has_valid_poses = true;
+            break;
+        }
+    }
+
+    if (!has_valid_poses) {
+        return;
+    }
     // receive camera to body transformation
     Eigen::Affine3d cameraInBody;
     if (!_camera2body.get(ts, cameraInBody))
@@ -545,7 +574,7 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
 
         Eigen::Affine3d ImuInNWU_measurement = landmark->second.marker_pose * markerInImu.inverse(); // landmark->second.marker_pose * marker_pose.getTransform().inverse() * cameraInBody.inverse() * imu_in_body;
 
-        // std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
+        std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
 
         // TODO: Average pose estimate based on marker pose reading
         if (i == 0)
@@ -564,9 +593,22 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
     }
     std::cout << "Final t: " << imu_in_nwu_final.translation() << std::endl;
     std::cout << "Final r: " << imu_in_nwu_final.rotation() << std::endl;
+    try {
+        // Create measurement using filter's existing types
+        PoseUKF::XY_Position xy_measurement;
+        xy_measurement.mu = imu_in_nwu_final.translation().head<2>();
+        xy_measurement.cov = Eigen::Matrix2d::Identity() * 0.1;
+
+        // Integrate position measurement
+        pose_filter->integrateMeasurement(xy_measurement);
+    }
+    catch (const std::runtime_error &e)
+    {
+        LOG_ERROR_S << "Failed to integrate marker pose measurement: " << e.what();
+    }
     // Reset Pose Filter based on marker measurement
     // TODO: This whole resetting thingy should be handled either by internal ukf or by something like a RLS Filter as described in https://www.researchgate.net/publication/330591847_Long-Duration_Autonomy_for_Small_Rotorcraft_UAS_Including_Recharging
-    pose_filter->resetFilterWithExternalPose(imu_in_nwu_final);
+    //pose_filter->resetFilterWithExternalPose(imu_in_nwu_final);
 }
 
 // void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
@@ -710,7 +752,7 @@ void PoseEstimator::writeEstimatedState()
     // write estimated body state
     PoseUKF::State current_state;
     PoseUKF::Covariance state_cov;
-    base::Time current_sample_time = base::Time::fromMicroseconds(pose_filter->getLastMeasurementTime());
+    base::Time current_sample_time = pose_filter->getLastMeasurementTime();
     if (current_sample_time > last_sample_time && pose_filter->getCurrentState(current_state, state_cov))
     {
         /* The pose filter State is in body-aligned IMU in NWU frame, which means that it is translated to IMU, but rotation is body-aligned (e.g. x-forward looking) */
@@ -963,6 +1005,28 @@ bool PoseEstimator::startHook()
     if (!PoseEstimatorBase::startHook())
         return false;
 
+    try {
+        // Open UDP socket
+        socket_.open(boost::asio::ip::udp::v4());
+        socket_.set_option(boost::asio::ip::udp::socket::reuse_address(true));
+        
+        // Enable multicast
+        socket_.set_option(boost::asio::ip::multicast::enable_loopback(true));
+        socket_.set_option(boost::asio::ip::multicast::hops(1));
+
+        // Use multicast address
+        // multicast_endpoint_ = boost::asio::ip::udp::endpoint(
+        // boost::asio::ip::address::from_string("239.255.0.1"), 4949);
+
+        multicast_endpoint_ = boost::asio::ip::udp::endpoint(
+            boost::asio::ip::address::from_string("192.168.1.72"), 4949);
+        
+    }
+    catch (const std::exception& e) {
+        LOG_ERROR_S << "Failed to open UDP socket: " << e.what();
+        return false;
+    }
+        
     // initialize filter
     if (!initializeFilter(_initial_state.value(), _filter_config.value(), _model_parameters.value(), imu_in_body, nav_in_nwu))
         return false;
