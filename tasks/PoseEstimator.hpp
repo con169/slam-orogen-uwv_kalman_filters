@@ -11,20 +11,25 @@
 #include <uwv_kalman_filters/PoseUKFConfig.hpp>
 #include <gps_base/BaseTypes.hpp>
 #include <dvl_teledyne/PD0Messages.hpp>
+#include <deque>
+#include <utility>
+
+#include <boost/asio.hpp>
 
 namespace pose_estimation
 {
     class StreamAlignmentVerifier;
 };
 
-namespace uwv_kalman_filters{
+namespace uwv_kalman_filters
+{
 
     class PoseUKF;
 
     struct VisualMarker
     {
         Eigen::Affine3d marker_pose;
-        Eigen::Matrix<double,6,6> cov_marker_pose;
+        Eigen::Matrix<double, 6, 6> cov_marker_pose;
         std::vector<Eigen::Vector3d> feature_positions;
     };
 
@@ -32,7 +37,7 @@ namespace uwv_kalman_filters{
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
      * Essential interfaces are operations, data flow ports and properties. These interfaces have been defined using the oroGen specification.
      * In order to modify the interfaces you should (re)use oroGen and rely on the associated workflow.
-     * 
+     *
      * \details
      * The name of a TaskContext is primarily defined via:
      \verbatim
@@ -44,8 +49,13 @@ namespace uwv_kalman_filters{
      */
     class PoseEstimator : public PoseEstimatorBase
     {
-	friend class PoseEstimatorBase;
+        friend class PoseEstimatorBase;
+
     protected:
+        boost::asio::io_service io_service_;
+        boost::asio::ip::udp::socket socket_;
+        boost::asio::ip::udp::endpoint multicast_endpoint_;
+
         boost::shared_ptr<uwv_kalman_filters::PoseUKF> pose_filter;
         boost::shared_ptr<pose_estimation::StreamAlignmentVerifier> verifier;
         Eigen::Affine3d imu_in_body;
@@ -54,9 +64,9 @@ namespace uwv_kalman_filters{
         Eigen::Affine2d nav_in_nwu_2d;
         Eigen::Matrix3d cov_angular_velocity;
         Eigen::Matrix3d cov_acceleration;
-        Eigen::Matrix<double,6,6> cov_body_efforts;
-        Eigen::Matrix<double,6,6> cov_body_efforts_unknown;
-        Eigen::Matrix<double,6,6> cov_body_efforts_unavailable;
+        Eigen::Matrix<double, 6, 6> cov_body_efforts;
+        Eigen::Matrix<double, 6, 6> cov_body_efforts_unknown;
+        Eigen::Matrix<double, 6, 6> cov_body_efforts_unavailable;
         Eigen::Matrix3d cov_water_velocity;
         Eigen::Matrix2d cov_visual_feature;
         double var_pressure;
@@ -75,10 +85,17 @@ namespace uwv_kalman_filters{
         std::map<std::string, VisualMarker> known_landmarks;
         CameraConfiguration camera_config;
 
-        //new variables
+        unsigned int state_buffer_duration_;
+        unsigned int max_time_diff_to_state_;
+        // buffers previous states as RigidBodyState (thus with timestamp), will be used to allow integration of delayed sensor measurements
+        std::deque<base::samples::RigidBodyState> state_buffer_;
+        std::deque<base::samples::RigidBodyState> delayed_position_samples_;
+
+        // this is used for simple dvl outlier rejection
         base::Time last_dvl_sample_time_;
+        base::Time last_usbl_sample_time_;
+        Eigen::Vector3d last_usbl_sample_;
         double last_linear_velocity_norm_;
-        //double max_diff_dvl_time;
 
         virtual void body_effortsTransformerCallback(const base::Time &ts, const ::base::commands::LinearAngular6DCommand &body_efforts_sample);
 
@@ -96,41 +113,73 @@ namespace uwv_kalman_filters{
 
         virtual void xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample);
 
+        // virtual void usbl_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &usbl_sample);
+
         virtual void gps_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &gps_position_samples_sample);
 
         virtual void gps_samplesTransformerCallback(const base::Time &ts, const ::gps_base::Solution &gps_samples_sample);
 
         virtual void apriltag_featuresTransformerCallback(const base::Time &ts, const ::apriltags::VisualFeaturePoints &visual_features_samples);
 
-        void predictionStep(const base::Time& sample_time);
+        void integrateDelayedPositionSamples(const base::Time &ts);
+
+        virtual void apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const ::apriltags::MarkerPosesStamped &marker_poses_stamped_samples);
+
+        void predictionStep(const base::Time &sample_time);
 
         void writeEstimatedState();
 
-        bool initializeFilter(const base::samples::RigidBodyState& initial_rbs, const PoseUKFConfig& filter_config,
-                              const uwv_dynamic_model::UWVParameters& model_parameters, const Eigen::Affine3d& imu_in_body,
-                              const Eigen::Affine3d& nav_in_nwu);
+        bool initializeFilter(const base::samples::RigidBodyState &initial_rbs, const PoseUKFConfig &filter_config,
+                              const uwv_dynamic_model::UWVParameters &model_parameters, const Eigen::Affine3d &imu_in_body,
+                              const Eigen::Affine3d &nav_in_nwu);
 
-        bool setProcessNoise(const PoseUKFConfig& filter_config, double imu_delta_t, const Eigen::Affine3d& imu_in_body);
+        bool setProcessNoise(const PoseUKFConfig &filter_config, double imu_delta_t, const Eigen::Affine3d &imu_in_body);
 
-        void registerKnownLandmarks(const VisualLandmarkConfiguration& config, const Eigen::Affine3d& nav_in_nwu);
+        void registerKnownLandmarks(const VisualLandmarkConfiguration &config, const Eigen::Affine3d &nav_in_nwu);
+
+        /**
+         * @brief Adds state estimation to buffer, in this case simply push_back into deque
+         *
+         * @param state
+         */
+        void addStateToBuffer(const base::samples::RigidBodyState &state);
+        /**
+         * @brief Manages Buffer size. Iterates through buffer from the front, removing objects that have exceeded state_buffer_duration time
+         *
+         */
+        void manageBufferSize();
+        /**
+         * @brief Searches for best matching past state estimate to given time sample
+         *
+         * @param time_sample time stamp of delayed sensor measurement
+         * @param output_state matched past state estimate
+         * @return true state found
+         * @return false no state found, in this case there are no past samples available (e.g. state_buffer_.empty())
+         */
+        bool findBestStateSampleInBuffer(const base::Time &time_sample, base::samples::RigidBodyState &output_state);
+        /**
+         * @brief Removes sample from Buffer front (in this case pop_front())
+         *
+         */
+        void removeStateSampleFromBufferFront();
 
     public:
         /** TaskContext constructor for PoseEstimator
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        PoseEstimator(std::string const& name = "uwv_kalman_filters::PoseEstimator");
+        PoseEstimator(std::string const &name = "uwv_kalman_filters::PoseEstimator");
 
         /** TaskContext constructor for PoseEstimator
          * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices.
          * \param engine The RTT Execution engine to be used for this task, which serialises the execution of all commands, programs, state machines and incoming events for a task.
-         * 
+         *
          */
-        PoseEstimator(std::string const& name, RTT::ExecutionEngine* engine);
+        PoseEstimator(std::string const &name, RTT::ExecutionEngine *engine);
 
         /** Default deconstructor of PoseEstimator
          */
-	~PoseEstimator();
+        ~PoseEstimator();
 
         /** This hook is called by Orocos when the state machine transitions
          * from PreOperational to Stopped. If it returns false, then the
@@ -193,4 +242,3 @@ namespace uwv_kalman_filters{
 }
 
 #endif
-

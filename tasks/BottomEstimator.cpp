@@ -26,6 +26,7 @@ void BottomEstimator::dvl_bottom_trackingTransformerCallback(const base::Time &t
 
     // set velocity
     double delta_t = (ts - bottom_filter->getLastMeasurementTime()).toSeconds();
+    //double delta_t = 0;
     if(delta_t > bottom_filter->getMinTimeDelta())
         bottom_filter->setVelocity(delta_position / delta_t);
 
@@ -190,7 +191,7 @@ void BottomEstimator::updateHook()
         ground_sample.cov_position.block(2,2,1,1) = MTK::subblock(state_cov, &BottomUKF::State::distance);
         ground_sample.orientation = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitZ(), current_state.normal.get_vect());
         ground_sample.cov_orientation.block(0,0,2,2) = MTK::subblock(state_cov, &BottomUKF::State::normal);
-        ground_sample.time = bottom_filter->getLastMeasurementTime();
+        ground_sample.time = current_sample_time;
         ground_sample.targetFrame = _body_frame.rvalue();
         ground_sample.sourceFrame = _source_frame.rvalue();
         _ground_samples.write(ground_sample);

@@ -63,7 +63,6 @@ task_context "VelocityProvider" do
     # timestamped samples of the current estimated velocity of the robot
     output_port( "velocity_samples", "/base/samples/RigidBodyState" )
 
-
     #******************************
     #** Aggregator Parameters ***** 
     #******************************
@@ -113,12 +112,22 @@ task_context "PoseEstimator" do
 
     # max time delta between to successive measurements in seconds
     property( "max_time_delta", "double", 2.0 )
+    
 
-    # new: link max_time_diff_dvl
-    property( "max_time_diff_dvl", "double", 1.0)
+    # max time duration in milliseconds for which previous states are being buffered, e.g. max expected delay of some sensor readings plus some extra
+    property( "state_buffer_duration", "unsigned int", 5000 )
+    # max time difference between a delayed sensor measurement time stamp and the matched previous state estimate time stamp in milliseconds
+    property( "max_time_diff_to_state", "unsigned int", 100 )
+    # how much the linear velocity (norm) can change between two consecutive DVL samples, this allows to do some simple outlier rejection
+    property( "max_velocity_change_between_samples", "double", 3.0 )
+    # max time difference in seconds between two DVL measurements to be considered consecutive measurements. If time diff between last dvl and current dvl reading > max_time_diff_dvl, then the DVL measurement is automatically rejected
+    property( "max_time_diff_dvl", "double", 1.0 )
 
-    # new: link max_velocity_change_between_samples
-    property( "max_velocity_change_between_samples", "double", 3.0)
+    # max velocity of the vehicle in m/s (when calculating norm of velocity, this is kinda hacky and should be interfered from hydrodynamic model of the vehicle)
+    property( "max_velocity", "double", 3.0 )
+    # max time difference in seconds between two USBL measurements to be considered consecutive measurements. If time diff between last usbl and current usbl reading > max_time_diff_usbl, then the usb measurement is automatically rejected
+    property( "max_time_diff_usbl", "double", 5.0 )
+
 
     #******************************
     #******* Input Ports **********
@@ -148,6 +157,10 @@ task_context "PoseEstimator" do
     input_port( "xy_position_samples", "/base/samples/RigidBodyState" ).
         needs_reliable_connection
 
+    # Position samples from USBL (USBL sensor in USBL base frame)
+    input_port( "usbl_samples", "/base/samples/RigidBodyState" ).
+        needs_reliable_connection
+
     # projected position
     input_port( "gps_position_samples", "/base/samples/RigidBodyState" ).
         needs_reliable_connection
@@ -166,6 +179,12 @@ task_context "PoseEstimator" do
 
     input_port( "apriltag_features", "/apriltags/VisualFeaturePoints").
         needs_reliable_connection
+
+    input_port( "apriltags_marker_poses_stamped", "/apriltags/MarkerPosesStamped" ).
+        needs_reliable_connection
+        
+    # Delayed position samples from an absolut source (e.g. USBL) expressed in the navigation frame
+    input_port( "delayed_xy_position_samples", "/base/samples/RigidBodyState" )
         
     #******************************
     #******* Output Ports *********
@@ -186,7 +205,10 @@ task_context "PoseEstimator" do
         transformation("dvl", "body")
         transformation("pressure_sensor", "body")
         transformation("gps", "body")
+        transformation("apriltag", "camera")
         transformation("camera", "body")
+        transformation("usbl_modem", "body")
+        transformation("usbl_base", "navigation")
         # Allows to define a navigation frame in the NWU aligned navigation frame.
         # The NWU aligned navigation frame is the internal navigation frame of the filter.
         # The origin of the frame is defined by the geographic position in the filter config.
@@ -203,6 +225,8 @@ task_context "PoseEstimator" do
         align_port("water_current_samples", 0.25)
         align_port("ground_distance_samples", 0.25)
         align_port("apriltag_features", 0.1)
+        align_port("apriltags_marker_poses_stamped", 0.1)
+        
         max_latency(0.2)
     end
 
@@ -218,8 +242,8 @@ end
 #
 # This filter estimates the distance and normal of a bottom surface.
 # It must receive dead reckoning pose samples and DVL based range measurements.
-# The output of the filter is the distance to the ground with respect to the current body position
-# and the normal of the surface.
+# The output of the filter is the normal of the surface and the distance to the
+# ground with respect to the current body position.
 # Note: Since only the distance as absolute value is estimated it is not
 # provided in the body frame, only with respect to the body position disregarding the orientation.
 #

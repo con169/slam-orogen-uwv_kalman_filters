@@ -6,18 +6,21 @@
 #include <pose_estimation/GravitationalModel.hpp>
 #include <base-logging/Logging.hpp>
 #include "uwv_kalman_filtersTypes.hpp"
+#include <ctime>
 
 using namespace uwv_kalman_filters;
 
 typedef PoseUKF::WState FilterState;
 
-PoseEstimator::PoseEstimator(std::string const& name)
+PoseEstimator::PoseEstimator(std::string const &name)
     : PoseEstimatorBase(name)
+    , socket_(io_service_)
 {
 }
 
-PoseEstimator::PoseEstimator(std::string const& name, RTT::ExecutionEngine* engine)
+PoseEstimator::PoseEstimator(std::string const &name, RTT::ExecutionEngine *engine)
     : PoseEstimatorBase(name, engine)
+    , socket_(io_service_)
 {
 }
 
@@ -36,7 +39,7 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
     body_efforts_unknown = true;
 
     PoseUKF::State current_state;
-    if(pose_filter->getCurrentState(current_state) && current_state.position.z() > dynamic_model_min_depth)
+    if (pose_filter->getCurrentState(current_state) && current_state.position.z() > dynamic_model_min_depth)
     {
         // inflate measurement uncertainty when close to the surface
         measurement.cov = cov_body_efforts_unknown;
@@ -48,7 +51,7 @@ void PoseEstimator::body_effortsTransformerCallback(const base::Time &ts, const 
         pose_filter->integrateMeasurement(measurement);
         body_efforts_unknown = false;
     }
-    catch(const std::runtime_error& e)
+    catch (const std::runtime_error &e)
     {
         LOG_ERROR_S << "Failed to integrate body effort measurements: " << e.what();
     }
@@ -64,18 +67,32 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
         new_state = MISSING_TRANSFORMATION;
         return;
     }
+    // con: 9/2/2025
+    //std::cout << dvl_velocity_samples_sample.printRBSHeaders();
+    std::cout << "dvl_velocity_samples_sample: " << dvl_velocity_samples_sample << std::endl; 
+    try {
+        std::stringstream ss;
+        ss << dvl_velocity_samples_sample;  
+        std::string message = ss.str();
+
+        socket_.send_to(boost::asio::buffer(message), multicast_endpoint_);
+    }
+    catch (const std::exception& e) {
+        LOG_ERROR_S << "Failed to send UDP message: " << e.what();
+    }
+    
     dvlInIMU.translation() -= imu_in_body.translation();
 
-    if(dvl_velocity_samples_sample.hasValidVelocity() && dvl_velocity_samples_sample.hasValidVelocityCovariance())
+    if (dvl_velocity_samples_sample.hasValidVelocity() && dvl_velocity_samples_sample.hasValidVelocityCovariance())
     {
         base::Vector3d velocity = dvlInIMU.rotation() * dvl_velocity_samples_sample.velocity;
         velocity -= pose_filter->getRotationRate().cross(dvlInIMU.translation());
-        
-        //outlier rejection
+
+        // outlier rejection
         auto diff = ts - last_dvl_sample_time_;
         if (last_dvl_sample_time_.isNull() || diff.toSeconds() > _max_time_diff_dvl.value())
         {
-            // last dvl is some time ago so reject this one
+            // last dvl is some time ago, so reject this one
             last_dvl_sample_time_ = ts;
             last_linear_velocity_norm_ = velocity.norm();
             LOG_ERROR_S << "This is the first DVL sample, or last DVL measurement was " << diff.toSeconds() << " seconds";
@@ -90,8 +107,10 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
             {
                 // reject
                 LOG_ERROR_S << "Rejecting DVL Sample with diff of: " << diff << " and velocity norm of: " << last_linear_velocity_norm_;
+                return;
             }
         }
+
         // apply new velocity measurement
         PoseUKF::Velocity measurement;
         measurement.mu = velocity;
@@ -101,7 +120,7 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
         {
             pose_filter->integrateMeasurement(measurement);
         }
-        catch(const std::runtime_error& e)
+        catch (const std::runtime_error &e)
         {
             LOG_ERROR_S << "Failed to integrate DVL measurement: " << e.what();
         }
@@ -110,7 +129,7 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
 
 void PoseEstimator::ground_distance_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &ground_distance_samples_sample)
 {
-    if(base::isNaN(ground_distance_samples_sample.position[2]))
+    if (base::isNaN(ground_distance_samples_sample.position[2]))
         ground_distance = base::infinity<double>();
     else
         ground_distance = ground_distance_samples_sample.position[2];
@@ -134,18 +153,18 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
     }
     dvlInIMU.translation() -= imu_in_body.translation();
 
-    //length of measurement vector should be variable based on height and return quality
+    // length of measurement vector should be variable based on height and return quality
     int num_cells = water_current_samples_sample.readings.size();
-    if(!base::isInfinity(ground_distance))
+    if (!base::isInfinity(ground_distance))
         num_cells = std::min(num_cells, (int)floor(ground_distance / water_profiling_cell_size));
     double min_corr;
     double cell_weighting;
     base::Vector3d velocity;
     PoseUKF::WaterVelocityMeasurement measurement;
 
-    for (int i=0;i<num_cells;i++)
+    for (int i = 0; i < num_cells; i++)
     {
-        min_corr = *std::min_element(water_current_samples_sample.readings[i].correlation, water_current_samples_sample.readings[i].correlation+4);
+        min_corr = *std::min_element(water_current_samples_sample.readings[i].correlation, water_current_samples_sample.readings[i].correlation + 4);
 
         if (min_corr > water_profiling_min_correlation && Eigen::Map<const Eigen::Vector3f>(water_current_samples_sample.readings[i].velocity).allFinite())
         {
@@ -154,16 +173,16 @@ void PoseEstimator::water_current_samplesTransformerCallback(const base::Time &t
             velocity -= pose_filter->getRotationRate().cross(dvlInIMU.translation());
 
             measurement.mu = velocity.head<2>();
-            measurement.cov = (dvlInIMU.rotation() * cov_water_velocity * dvlInIMU.rotation().transpose()).topLeftCorner(2,2);
+            measurement.cov = (dvlInIMU.rotation() * cov_water_velocity * dvlInIMU.rotation().transpose()).topLeftCorner(2, 2);
 
-            cell_weighting = (double(i)*water_profiling_cell_size + 0.5*water_profiling_cell_size + water_profiling_first_cell_blank - dvlInIMU.translation().z()) /
+            cell_weighting = (double(i) * water_profiling_cell_size + 0.5 * water_profiling_cell_size + water_profiling_first_cell_blank - dvlInIMU.translation().z()) /
                              ((double)water_current_samples_sample.readings.size() * water_profiling_cell_size + water_profiling_first_cell_blank - dvlInIMU.translation().z());
 
             try
             {
-                pose_filter->integrateMeasurement(measurement,cell_weighting);
+                pose_filter->integrateMeasurement(measurement, cell_weighting);
             }
-            catch(const std::runtime_error& e)
+            catch (const std::runtime_error &e)
             {
                 LOG_ERROR_S << "Failed to integrate ADCP measurement: " << e.what();
             }
@@ -185,7 +204,7 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
     {
         pose_filter->integrateMeasurement(rotation_rate);
     }
-    catch(const std::runtime_error& e)
+    catch (const std::runtime_error &e)
     {
         LOG_ERROR_S << "Failed to integrate angular velocity measurement: " << e.what();
     }
@@ -199,32 +218,33 @@ void PoseEstimator::imu_sensor_samplesTransformerCallback(const base::Time &ts, 
     {
         pose_filter->integrateMeasurement(acceleration);
     }
-    catch(const std::runtime_error& e)
+    catch (const std::runtime_error &e)
     {
         LOG_ERROR_S << "Failed to integrate acceleration measurement: " << e.what();
     }
 
     // integrate zero effort measurement with a sigma of max effort in order to constrain the velocity
-    if(body_efforts_unknown)
+    if (body_efforts_unknown)
     {
         try
         {
             PoseUKF::BodyEffortsMeasurement measurement;
-            measurement.mu = Eigen::Matrix<double, 6 ,1>::Zero();
+            measurement.mu = Eigen::Matrix<double, 6, 1>::Zero();
             measurement.cov = cov_body_efforts_unavailable;
 
             pose_filter->integrateMeasurement(measurement, true);
         }
-        catch(const std::runtime_error& e)
+        catch (const std::runtime_error &e)
         {
             LOG_ERROR_S << "Failed to integrate zero effort measurement: " << e.what();
         }
     }
-    else if((ts - last_efforts_sample_time).toSeconds() > (_body_efforts_period.value() * 3.0))
+    else if ((ts - last_efforts_sample_time).toSeconds() > (_body_efforts_period.value() * 3.0))
         body_efforts_unknown = true;
 
     // write current guess
     writeEstimatedState();
+    integrateDelayedPositionSamples(ts);
 }
 
 void PoseEstimator::altitude_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &pressure_sensor_samples_sample)
@@ -240,7 +260,7 @@ void PoseEstimator::altitude_samplesTransformerCallback(const base::Time &ts, co
     pressureSensorInIMU.translation() -= imu_in_body.translation();
 
     PoseUKF::State current_state;
-    if(pose_filter->getCurrentState(current_state))
+    if (pose_filter->getCurrentState(current_state))
     {
         Eigen::Matrix<double, 1, 1> altitude;
         altitude << pressure_sensor_samples_sample.position.z() - (current_state.orientation * pressureSensorInIMU.translation()).z();
@@ -248,20 +268,20 @@ void PoseEstimator::altitude_samplesTransformerCallback(const base::Time &ts, co
         // apply altitude measurement
         PoseUKF::Z_Position measurement;
         measurement.mu = altitude;
-        measurement.cov = pressure_sensor_samples_sample.cov_position.bottomRightCorner(1,1);
+        measurement.cov = pressure_sensor_samples_sample.cov_position.bottomRightCorner(1, 1);
 
         try
         {
             pose_filter->integrateMeasurement(measurement);
         }
-        catch(const std::runtime_error& e)
+        catch (const std::runtime_error &e)
         {
             LOG_ERROR_S << "Failed to integrate altitude measurement: " << e.what();
         }
     }
 }
 
-void PoseEstimator::pressure_samplesTransformerCallback(const base::Time& ts, const base::samples::Pressure& pressure_samples_sample)
+void PoseEstimator::pressure_samplesTransformerCallback(const base::Time &ts, const base::samples::Pressure &pressure_samples_sample)
 {
     // receive sensor to IMU transformation
     Eigen::Affine3d pressureSensorInIMU;
@@ -282,7 +302,7 @@ void PoseEstimator::pressure_samplesTransformerCallback(const base::Time& ts, co
     {
         pose_filter->integrateMeasurement(measurement, pressureSensorInIMU.translation());
     }
-    catch(const std::runtime_error& e)
+    catch (const std::runtime_error &e)
     {
         LOG_ERROR_S << "Failed to integrate pressure measurement: " << e.what();
     }
@@ -291,25 +311,103 @@ void PoseEstimator::pressure_samplesTransformerCallback(const base::Time& ts, co
 void PoseEstimator::xy_position_samplesTransformerCallback(const base::Time &ts, const ::base::samples::RigidBodyState &xy_position_samples_sample)
 {
     PoseUKF::State current_state;
-    if(pose_filter->getCurrentState(current_state))
+    if (pose_filter->getCurrentState(current_state))
     {
         // apply xy measurement
         PoseUKF::XY_Position measurement;
         measurement.mu = nav_in_nwu_2d * (xy_position_samples_sample.position.head<2>() + (nwu_in_nav.rotation() * current_state.orientation * imu_in_body.translation()).head<2>());
-        measurement.cov = nav_in_nwu_2d.linear() * xy_position_samples_sample.cov_position.topLeftCorner(2,2) * nav_in_nwu_2d.linear().transpose();
+        measurement.cov = nav_in_nwu_2d.linear() * xy_position_samples_sample.cov_position.topLeftCorner(2, 2) * nav_in_nwu_2d.linear().transpose();
 
         try
         {
             pose_filter->integrateMeasurement(measurement);
         }
-        catch(const std::runtime_error& e)
+        catch (const std::runtime_error &e)
         {
             LOG_ERROR_S << "Failed to integrate 2D position measurement: " << e.what();
         }
     }
 }
 
-void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time& ts, const base::samples::RigidBodyState& gps_position_samples_sample)
+// void PoseEstimator::usbl_samplesTransformerCallback(const base::Time &ts, const base::samples::RigidBodyState &usbl_sample)
+// {
+//     Eigen::Affine3d usblModemInBody;
+//     Eigen::Affine3d usblBaseInNav;
+//     if (!_usbl_modem2body.get(ts, usblModemInBody))
+//     {
+//         LOG_ERROR_S << "skip, couldn't receive a valid usbl_modem-in-body transformation sample!";
+//         new_state = MISSING_TRANSFORMATION;
+//         return;
+//     }
+//     if (!_usbl_base2navigation.get(ts, usblBaseInNav))
+//     {
+//         LOG_ERROR_S << "skip, couldn't receive a valid usbl_base-in-nav transformation sample!";
+//         new_state = MISSING_TRANSFORMATION;
+//         return;
+//     }
+
+//     PoseUKF::State current_state;
+//     if (pose_filter->getCurrentState(current_state))
+//     {
+//         base::samples::RigidBodyState delayed_state;
+//         if (!this->findBestStateSampleInBuffer(usbl_sample.time, delayed_state))
+//             return;
+
+//         Eigen::Affine3d delayed_usblM_in_nav = delayed_state.getTransform() * usblModemInBody;
+//         Eigen::Affine3d delayed_usblM_in_base = usblBaseInNav.inverse() * delayed_usblM_in_nav;
+//         delayed_state.setTransform(delayed_usblM_in_base);
+//         base::samples::RigidBodyState pose_sample;
+//         pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
+//         pose_sample.orientation = nwu_in_nav.rotation() * current_state.orientation;
+//         Eigen::Affine3d current_usblM_in_nav = pose_sample.getTransform() * usblModemInBody;
+//         Eigen::Affine3d current_usblM_in_base = usblBaseInNav.inverse() * current_usblM_in_nav;
+//         pose_sample.setTransform(current_usblM_in_base);
+
+//         base::samples::RigidBodyState rbs_usbl_sample = usbl_sample; // usblMinUSBLBase
+//         // add moved distance between point where measurement was taken and current pose to measured position sample
+//         rbs_usbl_sample.position += delayed_state.position - pose_sample.position;
+//         rbs_usbl_sample.orientation = current_usblM_in_base.rotation();
+
+//         Eigen::Affine3d usblM_in_nav = usblBaseInNav * rbs_usbl_sample.getTransform();
+//         if (usblM_in_nav.translation().z() >= usblBaseInNav.translation().z())
+//             return; // simple outlier rejection, if modem over base, then there is a high probability for outliers
+//         Eigen::Affine3d body_in_nav = usblM_in_nav * usblModemInBody.inverse();
+//         //rbs_usbl_sample.setTransform(body_in_nav);
+
+//         std::cout << "USBL Body in Nav measurement: " << body_in_nav.translation() << std::endl;
+//         Eigen::Affine3d imu_in_nav = body_in_nav;
+//         imu_in_nav.translation() -= body_in_nav.rotation() * imu_in_body.translation();
+//         Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
+
+//         // TODO: Merge to XYZ Position ?
+//         PoseUKF::XY_Position xy_measurement;
+//         PoseUKF::Z_Position z_measurement;
+//         xy_measurement.mu = imu_in_nwu.translation().head<2>();
+//         // TODO: this is only a hack, it should be passed by the usbl driver
+//         // Eigen::Matrix2d xy_cov;
+//         // xy_cov(0, 0) = 0.2;
+//         // xy_cov(0, 1) = 0.;
+//         // xy_cov(1, 0) = 0.;
+//         // xy_cov(1, 1) = 0.2;
+//         xy_measurement.cov = usbl_sample.cov_position.topLeftCorner(2,2);
+//         z_measurement.mu = imu_in_nwu.translation().tail<1>();
+//         Eigen::Matrix<double, 1, 1> z_cov;
+//         z_cov(0, 0) = 0.2;
+//         z_measurement.cov = z_cov;
+
+//         try
+//         {
+//             pose_filter->integrateMeasurement(xy_measurement);
+//             //pose_filter->integrateMeasurement(z_measurement);
+//         }
+//         catch (const std::runtime_error &e)
+//         {
+//             LOG_ERROR_S << "Failed to integrate USBL Position measurement: " << e.what();
+//         }
+//     }
+// }
+
+void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time &ts, const base::samples::RigidBodyState &gps_position_samples_sample)
 {
     // receive GPS to IMU transformation
     Eigen::Affine3d gpsInIMU;
@@ -322,24 +420,24 @@ void PoseEstimator::gps_position_samplesTransformerCallback(const base::Time& ts
     gpsInIMU.translation() -= imu_in_body.translation();
 
     PoseUKF::State current_state;
-    if(pose_filter->getCurrentState(current_state))
+    if (pose_filter->getCurrentState(current_state))
     {
         PoseUKF::XY_Position measurement;
         measurement.mu = gps_position_samples_sample.position.head<2>() - (current_state.orientation * gpsInIMU.translation()).head<2>();
-        measurement.cov = gps_position_samples_sample.cov_position.topLeftCorner(2,2);
+        measurement.cov = gps_position_samples_sample.cov_position.topLeftCorner(2, 2);
 
         try
         {
             pose_filter->integrateMeasurement(measurement);
         }
-        catch(const std::runtime_error& e)
+        catch (const std::runtime_error &e)
         {
             LOG_ERROR_S << "Failed to integrate 2D position measurement: " << e.what();
         }
     }
 }
 
-void PoseEstimator::gps_samplesTransformerCallback(const base::Time& ts, const gps_base::Solution& gps_samples_sample)
+void PoseEstimator::gps_samplesTransformerCallback(const base::Time &ts, const gps_base::Solution &gps_samples_sample)
 {
     // receive GPS to IMU transformation
     Eigen::Affine3d gpsInIMU;
@@ -359,20 +457,22 @@ void PoseEstimator::gps_samplesTransformerCallback(const base::Time& ts, const g
     PoseUKF::GeographicPosition measurement;
     measurement.mu << latitude, longitude;
     measurement.cov << std::pow(gps_samples_sample.deviationLatitude, 2.), 0.,
-                       0., std::pow(gps_samples_sample.deviationLongitude, 2.);
+        0., std::pow(gps_samples_sample.deviationLongitude, 2.);
 
     try
     {
         pose_filter->integrateMeasurement(measurement, gpsInIMU.translation());
     }
-    catch(const std::runtime_error& e)
+    catch (const std::runtime_error &e)
     {
         LOG_ERROR_S << "Failed to integrate GPS measurement: " << e.what();
     }
 }
 
-void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time& ts, const apriltags::VisualFeaturePoints& visual_features_samples)
+void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time &ts, const apriltags::VisualFeaturePoints &visual_features_samples)
 {
+    if (visual_features_samples.feature_points.empty())
+        return;
     // receive camera to body transformation
     Eigen::Affine3d cameraInBody;
     if (!_camera2body.get(ts, cameraInBody))
@@ -381,25 +481,26 @@ void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time& ts, c
         new_state = MISSING_TRANSFORMATION;
         return;
     }
-    Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
+    Eigen::Affine3d cameraInIMU = cameraInBody;
+    cameraInIMU.translation() -= imu_in_body.translation();
 
-    for(unsigned i = 0; i < visual_features_samples.feature_points.size(); i++)
+    for (unsigned i = 0; i < visual_features_samples.feature_points.size(); i++)
     {
-        const apriltags::VisualFeaturePoint& feature_points = visual_features_samples.feature_points[i];
+        const apriltags::VisualFeaturePoint &feature_points = visual_features_samples.feature_points[i];
         std::map<std::string, VisualMarker>::const_iterator landmark = known_landmarks.find(feature_points.identifier);
-        if(landmark == known_landmarks.end())
+        if (landmark == known_landmarks.end())
         {
             LOG_WARN_S << "Landmark with ID " << feature_points.identifier << " is unknown. Measurements will be skipped.";
             continue;
         }
-        else if(feature_points.points.size() > landmark->second.feature_positions.size())
+        else if (feature_points.points.size() > landmark->second.feature_positions.size())
         {
             LOG_ERROR_S << "More then " << landmark->second.feature_positions.size() << " visual features are not supported. Measurements will be skipped.";
             continue;
         }
 
         std::vector<PoseUKF::VisualFeatureMeasurement> measurements(feature_points.points.size());
-        for(unsigned j = 0; j < feature_points.points.size(); j++)
+        for (unsigned j = 0; j < feature_points.points.size(); j++)
         {
             measurements[j].mu = feature_points.points[j];
             measurements[j].cov = cov_visual_feature;
@@ -408,23 +509,238 @@ void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time& ts, c
         try
         {
             pose_filter->integrateMeasurement(measurements, landmark->second.feature_positions,
-                                              landmark->second.marker_pose, landmark->second.cov_marker_pose,
-                                              camera_config, cameraInIMU);
+                                            landmark->second.marker_pose, landmark->second.cov_marker_pose,
+                                            camera_config, cameraInIMU);
         }
-        catch(const std::runtime_error& e)
+        catch (const std::runtime_error &e)
         {
             LOG_ERROR_S << "Failed to integrate visual measurement: " << e.what();
         }
-    }
+    } 
 }
 
-void PoseEstimator::predictionStep(const base::Time& sample_time)
+void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const apriltags::MarkerPosesStamped &marker_poses_stamped_samples)
+{
+    bool has_valid_poses = false;
+    for (const auto& pose : marker_poses_stamped_samples.marker_poses)
+    {
+        if (pose.hasValidPosition() && pose.hasValidOrientation())
+        {
+            has_valid_poses = true;
+            break;
+        }
+    }
+
+    if (!has_valid_poses) {
+        return;
+    }
+    // receive camera to body transformation
+    Eigen::Affine3d cameraInBody;
+    if (!_camera2body.get(ts, cameraInBody))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid camera-in-body transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+
+    Eigen::Affine3d imu_in_nwu_final;
+    for (size_t i = 0; i < marker_poses_stamped_samples.marker_poses.size(); i++)
+    {
+        // TODO check if sourceFrame is correct to receive the tag id
+        std::string erase = "_frame";
+        std::string marker_id = marker_poses_stamped_samples.marker_poses[i].sourceFrame;
+        marker_id = marker_id.erase(marker_id.find(erase), erase.length());
+        // PoseUKF::State current_state;
+        // if (pose_filter->getCurrentState(current_state))
+        // {
+        //     Eigen::Affine3d marker_in_body = cameraInBody * marker_pose.getTransform();
+        //     base::samples::RigidBodyState rbs_body_in_nav;
+        //     rbs_body_in_nav.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
+        //     rbs_body_in_nav.orientation = nwu_in_nav.rotation() * current_state.orientation;
+        //     Eigen::Affine3d marker_in_nav_print = rbs_body_in_nav.getTransform() * marker_in_body;
+        //     std::cout << "Marker: " << marker_id << " Position: " << marker_in_nav_print.translation() << " Orientation: " << marker_in_nav_print.rotation() << std::endl;
+        // }
+
+        std::map<std::string, VisualMarker>::const_iterator landmark = known_landmarks.find(marker_id);
+        if (landmark == known_landmarks.end())
+        {
+            std::cout << "Marker with ID " << marker_id << " is unknown. Measurements will be skipped." << std::endl;
+            continue;
+        }
+        if (marker_poses_stamped_samples.marker_poses[i].position[2] > 2.)
+            continue; // temporary
+        Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
+        Eigen::Affine3d markerInImu = cameraInIMU * marker_poses_stamped_samples.marker_poses[i].getTransform();
+
+        Eigen::Affine3d ImuInNWU_measurement = landmark->second.marker_pose * markerInImu.inverse(); // landmark->second.marker_pose * marker_pose.getTransform().inverse() * cameraInBody.inverse() * imu_in_body;
+
+        std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
+
+        // TODO: Average pose estimate based on marker pose reading
+        if (i == 0)
+        {
+            imu_in_nwu_final = ImuInNWU_measurement;
+        }
+        else
+        {
+            std::cout << "Before Averaging: " << imu_in_nwu_final.translation() << std::endl;
+            imu_in_nwu_final.translation() = (imu_in_nwu_final.translation() + ImuInNWU_measurement.translation()) / 2;
+            std::cout << "After Averaging: " << imu_in_nwu_final.translation() << std::endl;
+            Eigen::Quaterniond q_1(imu_in_nwu_final.rotation());
+            Eigen::Quaterniond q_2(ImuInNWU_measurement.rotation());
+            imu_in_nwu_final.linear() = q_1.slerp(0.5, q_2).toRotationMatrix();
+        }
+    }
+    std::cout << "Final t: " << imu_in_nwu_final.translation() << std::endl;
+    std::cout << "Final r: " << imu_in_nwu_final.rotation() << std::endl;
+    try {
+        // Create measurement using filter's existing types
+        PoseUKF::XY_Position xy_measurement;
+        xy_measurement.mu = imu_in_nwu_final.translation().head<2>();
+        xy_measurement.cov = Eigen::Matrix2d::Identity() * 0.1;
+
+        // Integrate position measurement
+        pose_filter->integrateMeasurement(xy_measurement);
+    }
+    catch (const std::runtime_error &e)
+    {
+        LOG_ERROR_S << "Failed to integrate marker pose measurement: " << e.what();
+    }
+    // Reset Pose Filter based on marker measurement
+    // TODO: This whole resetting thingy should be handled either by internal ukf or by something like a RLS Filter as described in https://www.researchgate.net/publication/330591847_Long-Duration_Autonomy_for_Small_Rotorcraft_UAS_Including_Recharging
+    //pose_filter->resetFilterWithExternalPose(imu_in_nwu_final);
+}
+
+// void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
+// {
+//     base::samples::RigidBodyState rbs;
+//     while (_delayed_xy_position_samples.read(rbs) == RTT::NewData)
+//     {
+//         delayed_position_samples.push_back(rbs);
+//     }
+
+//     while (!delayed_position_samples.empty() && delayed_position_samples.front().time < ts)
+//     {
+//         // NOTE Currently the displacement from the delayed sensor position to the IMU frame is disregarded.
+//         // apply xy measurement
+//         PoseUKF::XY_Position measurement;
+//         measurement.mu = nav_in_nwu_2d * delayed_position_samples.front().position.head<2>();
+//         measurement.cov = nav_in_nwu_2d.linear() * delayed_position_samples.front().cov_position.topLeftCorner(2, 2) * nav_in_nwu_2d.linear().transpose();
+
+//         try
+//         {
+//             double delay = (ts - delayed_position_samples.front().time).toSeconds();
+//             if (!pose_filter->integrateDelayedMeasurement(measurement, delay))
+//             {
+//                 LOG_ERROR_S << "Failed to integrate delayed 2D position measurement: Maximum delay exceeded (" << delay << " seconds).";
+//             }
+//         }
+//         catch (const std::runtime_error &e)
+//         {
+//             LOG_ERROR_S << "Failed to integrate delayed 2D position measurement: " << e.what();
+//         }
+
+//         delayed_position_samples.pop_front();
+//     }
+// }
+
+void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
+{
+    base::samples::RigidBodyState delayed_sample;
+
+    while (_delayed_xy_position_samples.read(delayed_sample) == RTT::NewData)
+    {
+        delayed_position_samples_.push_back(delayed_sample);
+    }
+
+    Eigen::Affine3d usblModemInImu;
+    Eigen::Affine3d usblBaseInNav;
+    if (!_usbl_modem2body.get(ts, usblModemInImu))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid usbl_modem-in-body transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+    usblModemInImu.translation() -= imu_in_body.translation();
+    if (!_usbl_base2navigation.get(ts, usblBaseInNav))
+    {
+        LOG_ERROR_S << "skip, couldn't receive a valid usbl_base-in-nav transformation sample!";
+        new_state = MISSING_TRANSFORMATION;
+        return;
+    }
+
+    while (!delayed_position_samples_.empty())
+    {
+        if (delayed_position_samples_.front().time > state_buffer_.back().time)
+        {
+            return;
+        }
+        // outlier rejection
+        auto diff = delayed_position_samples_.front().time - last_usbl_sample_time_;
+        if (last_usbl_sample_time_.isNull() || diff.toSeconds() > _max_time_diff_usbl.value())
+        {
+            // last dvl is some time ago, so reject this one
+            last_usbl_sample_time_ = delayed_position_samples_.front().time;
+            last_usbl_sample_ = delayed_position_samples_.front().position;
+            LOG_ERROR_S << "This is the first USBL sample, or last USBL measurement was " << diff.toSeconds() << " seconds";
+            return;
+        }
+        else
+        {
+            auto diff = fabs((delayed_position_samples_.front().position - last_usbl_sample_).norm());
+            auto time_diff = (delayed_position_samples_.front().time - last_usbl_sample_time_).toSeconds();
+            last_usbl_sample_time_ = delayed_position_samples_.front().time;
+            last_usbl_sample_ = delayed_position_samples_.front().position;
+
+            if (diff > time_diff * _max_velocity.value())
+            {
+                // reject
+                LOG_ERROR_S << "Rejecting USBL Sample with moved distance of: " << diff << " in " << time_diff << " seconds.";
+                return;
+            }
+        }
+
+        base::samples::RigidBodyState delayed_state;
+        if (!this->findBestStateSampleInBuffer(delayed_position_samples_.front().time, delayed_state))
+            return;
+
+        delayed_position_samples_.front().orientation = delayed_state.orientation;
+        Eigen::Affine3d usblBaseInNWU = nav_in_nwu * usblBaseInNav;
+        Eigen::Vector3d usblM_in_nwu = usblBaseInNWU * delayed_position_samples_.front().position;
+        // if (usblM_in_nav.translation().z() >= usblBaseInNav.translation().z())
+        //     return;
+        Eigen::Vector3d imu_in_nwu = usblM_in_nwu - delayed_position_samples_.front().orientation * usblModemInImu.translation();
+        // Eigen::Affine3d imu_in_nwu = nav_in_nwu * imu_in_nav;
+
+        PoseUKF::XY_Position xy_measurement;
+        xy_measurement.mu = imu_in_nwu.head<2>();
+        // TODO: this is only a hack, it should be passed by the usbl driver
+
+        xy_measurement.cov = delayed_position_samples_.front().cov_position.topLeftCorner<2, 2>();
+
+        try
+        {
+            std::cout << "?" << std::endl;
+            pose_filter->integrateDelayedPositionMeasurement(xy_measurement, delayed_state.position.head<2>());
+        }
+        catch (const std::runtime_error &e)
+        {
+            LOG_ERROR_S << "Failed to integrate USBL Position measurement: " << e.what();
+        }
+        delayed_position_samples_.pop_front();
+    }
+
+    // is this the correct place ?
+    this->manageBufferSize();
+}
+
+void PoseEstimator::predictionStep(const base::Time &sample_time)
 {
     try
     {
         pose_filter->predictionStepFromSampleTime(sample_time);
     }
-    catch(const std::runtime_error& e)
+    catch (const std::runtime_error &e)
     {
         LOG_ERROR_S << "Failed to execute prediction step: " << e.what();
         LOG_ERROR_S << "Skipping prediction step.";
@@ -437,9 +753,10 @@ void PoseEstimator::writeEstimatedState()
     PoseUKF::State current_state;
     PoseUKF::Covariance state_cov;
     base::Time current_sample_time = pose_filter->getLastMeasurementTime();
-    if(current_sample_time > last_sample_time && pose_filter->getCurrentState(current_state, state_cov))
+    if (current_sample_time > last_sample_time && pose_filter->getCurrentState(current_state, state_cov))
     {
-        /* Transform filter state from IMU in NWU aligned navigation frame to
+        /* The pose filter State is in body-aligned IMU in NWU frame, which means that it is translated to IMU, but rotation is body-aligned (e.g. x-forward looking) */
+        /* Transform filter state from body-aligned IMU in NWU aligned navigation frame to
          * body in navigation frame */
         base::samples::RigidBodyState pose_sample;
         pose_sample.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
@@ -454,6 +771,12 @@ void PoseEstimator::writeEstimatedState()
         pose_sample.targetFrame = _navigation_frame.value();
         pose_sample.sourceFrame = _body_frame.value();
         _pose_samples.write(pose_sample);
+
+        base::samples::RigidBodyState pose_sample_nwu;
+        pose_sample_nwu.position = current_state.position;
+        pose_sample_nwu.orientation = current_state.orientation;
+        pose_sample_nwu.time = current_sample_time;
+        this->addStateToBuffer(pose_sample_nwu);
 
         SecondaryStates secondary_states;
         secondary_states.acceleration = nwu_in_nav.rotation() * current_state.acceleration;
@@ -485,146 +808,56 @@ void PoseEstimator::writeEstimatedState()
     }
 }
 
-bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState& initial_rbs,
-                                     const PoseUKFConfig& filter_config,
-                                     const uwv_dynamic_model::UWVParameters& model_parameters,
-                                     const Eigen::Affine3d& imu_in_body,
-                                     const Eigen::Affine3d& nav_in_nwu)
+bool PoseEstimator::initializeFilter(const base::samples::RigidBodyState &initial_rbs,
+                                     const PoseUKFConfig &filter_config,
+                                     const uwv_dynamic_model::UWVParameters &model_parameters,
+                                     const Eigen::Affine3d &imu_in_body,
+                                     const Eigen::Affine3d &nav_in_nwu)
 {
-    if(!initial_rbs.hasValidPosition() || !initial_rbs.hasValidPositionCovariance()
-        || !initial_rbs.hasValidOrientation() || !initial_rbs.hasValidOrientationCovariance())
+    if (!initial_rbs.hasValidPosition() || !initial_rbs.hasValidPositionCovariance() || !initial_rbs.hasValidOrientation() || !initial_rbs.hasValidOrientationCovariance())
     {
         LOG_ERROR_S << "Undefined values in initial pose!";
         return false;
     }
 
-    if(model_parameters.damping_matrices.size() < 2)
+    if (model_parameters.damping_matrices.size() < 2)
     {
         LOG_ERROR_S << "The damping matrices must have at least two elements!";
         return false;
     }
 
-    PoseUKF::State initial_state;
-    initial_state.position = TranslationType(nav_in_nwu * (initial_rbs.position + initial_rbs.orientation * imu_in_body.translation()));
-    initial_state.orientation = RotationType(MTK::SO3<double>(nav_in_nwu.rotation() * initial_rbs.orientation));
-    initial_state.velocity = VelocityType(Eigen::Vector3d::Zero());
-    initial_state.acceleration = AccelerationType(Eigen::Vector3d::Zero());
-    initial_state.bias_gyro = BiasType(imu_in_body.rotation() * filter_config.rotation_rate.bias_offset);
-    initial_state.bias_acc = BiasType(imu_in_body.rotation() * filter_config.acceleration.bias_offset);
-    Eigen::Matrix<double, 1, 1> gravity;
-    gravity(0) = pose_estimation::GravitationalModel::WGS_84(filter_config.location.latitude, filter_config.location.altitude);
-    initial_state.gravity = GravityType(gravity);
-    initial_state.inertia.block(0,0,2,2) = model_parameters.inertia_matrix.block(0,0,2,2);
-    initial_state.inertia.block(0,2,2,1) = model_parameters.inertia_matrix.block(0,5,2,1);
-    initial_state.inertia.block(2,0,1,2) = model_parameters.inertia_matrix.block(5,0,1,2);
-    initial_state.inertia.block(2,2,1,1) = model_parameters.inertia_matrix.block(5,5,1,1);
-    initial_state.lin_damping.block(0,0,2,2) = model_parameters.damping_matrices[0].block(0,0,2,2);
-    initial_state.lin_damping.block(0,2,2,1) = model_parameters.damping_matrices[0].block(0,5,2,1);
-    initial_state.lin_damping.block(2,0,1,2) = model_parameters.damping_matrices[0].block(5,0,1,2);
-    initial_state.lin_damping.block(2,2,1,1) = model_parameters.damping_matrices[0].block(5,5,1,1);
-    initial_state.quad_damping.block(0,0,2,2) = model_parameters.damping_matrices[1].block(0,0,2,2);
-    initial_state.quad_damping.block(0,2,2,1) = model_parameters.damping_matrices[1].block(0,5,2,1);
-    initial_state.quad_damping.block(2,0,1,2) = model_parameters.damping_matrices[1].block(5,0,1,2);
-    initial_state.quad_damping.block(2,2,1,1) = model_parameters.damping_matrices[1].block(5,5,1,1);
-    initial_state.water_velocity = WaterVelocityType(Eigen::Vector2d::Zero());
-    initial_state.water_velocity_below = WaterVelocityType(Eigen::Vector2d::Zero());
-    initial_state.bias_adcp = WaterVelocityType(Eigen::Vector2d::Zero());
-    Eigen::Matrix<double, 1, 1> water_density;
-    water_density << filter_config.hydrostatics.water_density;
-    initial_state.water_density = DensityType(water_density);
+    Eigen::Vector3d position_nwu = nav_in_nwu * (initial_rbs.position + initial_rbs.orientation * imu_in_body.translation());
+    Eigen::Quaterniond orientation_nwu = Eigen::Quaterniond(nav_in_nwu.rotation() * initial_rbs.orientation);
+    Eigen::Matrix3d cov_position_nwu = nav_in_nwu.linear() * initial_rbs.cov_position * nav_in_nwu.linear().transpose();
+    Eigen::Matrix3d cov_orientation_nwu = nav_in_nwu.linear() * initial_rbs.cov_orientation * nav_in_nwu.linear().transpose();
 
-    PoseUKF::Covariance initial_state_cov = PoseUKF::Covariance::Zero();
-    MTK::subblock(initial_state_cov, &FilterState::position) = nav_in_nwu.linear() * initial_rbs.cov_position * nav_in_nwu.linear().transpose();
-    MTK::subblock(initial_state_cov, &FilterState::orientation) = nav_in_nwu.linear() * initial_rbs.cov_orientation * nav_in_nwu.linear().transpose();
-    MTK::subblock(initial_state_cov, &FilterState::velocity) = Eigen::Matrix3d::Identity(); // velocity is unknown at the start
-    MTK::subblock(initial_state_cov, &FilterState::acceleration) = 10*Eigen::Matrix3d::Identity(); // acceleration is unknown at the start
-    MTK::subblock(initial_state_cov, &FilterState::bias_gyro) = imu_in_body.rotation() * filter_config.rotation_rate.bias_instability.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
-    MTK::subblock(initial_state_cov, &FilterState::bias_acc) = imu_in_body.rotation() * filter_config.acceleration.bias_instability.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
-    Eigen::Matrix<double, 1, 1> gravity_var;
-    gravity_var << pow(0.05, 2.); // give the gravity model a sigma of 5 cm/s^2 at the start
-    MTK::subblock(initial_state_cov, &FilterState::gravity) = gravity_var;
-    MTK::subblock(initial_state_cov, &FilterState::inertia) = filter_config.model_noise_parameters.inertia_instability.cwiseAbs2().asDiagonal();
-    MTK::subblock(initial_state_cov, &FilterState::lin_damping) = filter_config.model_noise_parameters.lin_damping_instability.cwiseAbs2().asDiagonal();
-    MTK::subblock(initial_state_cov, &FilterState::quad_damping) = filter_config.model_noise_parameters.quad_damping_instability.cwiseAbs2().asDiagonal();
-    MTK::subblock(initial_state_cov, &FilterState::water_velocity) = pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
-    MTK::subblock(initial_state_cov, &FilterState::water_velocity_below) = pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
-    MTK::subblock(initial_state_cov, &FilterState::bias_adcp) = pow(filter_config.water_velocity.adcp_bias_limits,2) * Eigen::Matrix2d::Identity();
-    Eigen::Matrix<double, 1, 1> water_density_var;
-    water_density_var << pow(filter_config.hydrostatics.water_density_limits, 2.);
-    MTK::subblock(initial_state_cov, &FilterState::water_density) = water_density_var;
-
-    PoseUKF::PoseUKFParameter filter_parameter;
-    filter_parameter.imu_in_body = imu_in_body.translation();
-    filter_parameter.acc_bias_tau = filter_config.acceleration.bias_tau;
-    filter_parameter.acc_bias_offset = imu_in_body.rotation() * filter_config.acceleration.bias_offset;
-    filter_parameter.gyro_bias_tau = filter_config.rotation_rate.bias_tau;
-    filter_parameter.gyro_bias_offset = imu_in_body.rotation() * filter_config.rotation_rate.bias_offset;
-    filter_parameter.inertia_tau = filter_config.model_noise_parameters.inertia_tau;
-    filter_parameter.lin_damping_tau = filter_config.model_noise_parameters.lin_damping_tau;
-    filter_parameter.quad_damping_tau = filter_config.model_noise_parameters.quad_damping_tau;
-    filter_parameter.water_velocity_tau = filter_config.water_velocity.tau;
-    filter_parameter.water_velocity_limits = filter_config.water_velocity.limits;
-    filter_parameter.water_velocity_scale = filter_config.water_velocity.scale;
-    filter_parameter.adcp_bias_tau = filter_config.water_velocity.adcp_bias_tau;
-    filter_parameter.atmospheric_pressure = filter_config.hydrostatics.atmospheric_pressure;
-    filter_parameter.water_density_tau = filter_config.hydrostatics.water_density_tau;
-
-    pose_filter.reset(new PoseUKF(initial_state, initial_state_cov, filter_config.location,
-                                  model_parameters, filter_parameter));
+    pose_filter.reset(new PoseUKF(position_nwu, cov_position_nwu,
+                                  orientation_nwu, cov_orientation_nwu,
+                                  filter_config, model_parameters,
+                                  imu_in_body));
     return true;
 }
 
-bool PoseEstimator::setProcessNoise(const PoseUKFConfig& filter_config, double imu_delta_t, const Eigen::Affine3d& imu_in_body)
+bool PoseEstimator::setProcessNoise(const PoseUKFConfig &filter_config, double imu_delta_t, const Eigen::Affine3d &imu_in_body)
 {
-    PoseUKF::Covariance process_noise_cov = PoseUKF::Covariance::Zero();
-    // Euler integration error position: (1/6/4 * jerk_max * dt^3)^2
-    // assuming max jerk is 4*sigma devide by 4
-    MTK::subblock(process_noise_cov, &FilterState::position) = 1.5 * (std::pow(imu_delta_t, 4.0) * ((1./6.) * 0.25 * filter_config.max_jerk).cwiseAbs2()).asDiagonal();
-    LOG_DEBUG_S << "(sigma/delta_t)^2 position:\n" << MTK::subblock(process_noise_cov, &FilterState::position);
-    // Euler integration error velocity: (1/2/4 * jerk_max * dt^2)^2
-    MTK::subblock(process_noise_cov, &FilterState::velocity) = 1.5 * (std::pow(imu_delta_t, 2.0) * (0.5 * 0.25 * filter_config.max_jerk).cwiseAbs2()).asDiagonal();
-    LOG_DEBUG_S << "(sigma/delta_t)^2 velocity:\n" << MTK::subblock(process_noise_cov, &FilterState::velocity);
-    // Euler integration error acceleration: (1/4 * jerk_max * dt)^2
-    MTK::subblock(process_noise_cov, &FilterState::acceleration) = (0.25 * filter_config.max_jerk).cwiseAbs2().asDiagonal();
-    LOG_DEBUG_S << "(sigma/delta_t)^2 acceleration:\n" << MTK::subblock(process_noise_cov, &FilterState::acceleration);
-    MTK::subblock(process_noise_cov, &FilterState::orientation) = imu_in_body.rotation() * filter_config.rotation_rate.randomwalk.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
-    MTK::subblock(process_noise_cov, &FilterState::bias_gyro) = imu_in_body.rotation() * (2. / (filter_config.rotation_rate.bias_tau * imu_delta_t)) *
-                                        filter_config.rotation_rate.bias_instability.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
-    MTK::subblock(process_noise_cov, &FilterState::bias_acc) = imu_in_body.rotation() * (2. / (filter_config.acceleration.bias_tau * imu_delta_t)) *
-                                        filter_config.acceleration.bias_instability.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
-    Eigen::Matrix<double, 1, 1> gravity_noise;
-    gravity_noise << 1.e-12; // add a tiny bit of noise only for numeric stability
-    MTK::subblock(process_noise_cov, &FilterState::gravity) = gravity_noise;
-    MTK::subblock(process_noise_cov, &FilterState::inertia) = (2. / (filter_config.model_noise_parameters.inertia_tau * imu_delta_t)) *
-                                        filter_config.model_noise_parameters.inertia_instability.cwiseAbs2().asDiagonal();
-    MTK::subblock(process_noise_cov, &FilterState::lin_damping) = (2. / (filter_config.model_noise_parameters.lin_damping_tau * imu_delta_t)) *
-                                        filter_config.model_noise_parameters.lin_damping_instability.cwiseAbs2().asDiagonal();
-    MTK::subblock(process_noise_cov, &FilterState::quad_damping) = (2. / (filter_config.model_noise_parameters.quad_damping_tau * imu_delta_t)) *
-                                        filter_config.model_noise_parameters.quad_damping_instability.cwiseAbs2().asDiagonal();
+    pose_filter->setProcessNoiseFromConfig(filter_config, imu_delta_t, Eigen::Quaterniond(imu_in_body.rotation()));
+    PoseUKF::Covariance process_noise_cov = pose_filter->getProcessNoiseCovariance();
 
-    MTK::subblock(process_noise_cov, &FilterState::water_velocity) = (2. / (filter_config.water_velocity.tau * imu_delta_t)) *
-                                        pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
+    LOG_DEBUG_S << "(sigma/delta_t)^2 position:\n"
+                << MTK::subblock(process_noise_cov, &FilterState::position);
+    LOG_DEBUG_S << "(sigma/delta_t)^2 velocity:\n"
+                << MTK::subblock(process_noise_cov, &FilterState::velocity);
+    LOG_DEBUG_S << "(sigma/delta_t)^2 acceleration:\n"
+                << MTK::subblock(process_noise_cov, &FilterState::acceleration);
 
-    MTK::subblock(process_noise_cov, &FilterState::water_velocity_below) = (2. / (filter_config.water_velocity.tau * imu_delta_t)) *
-                                        pow(filter_config.water_velocity.limits,2) * Eigen::Matrix2d::Identity();
-
-    MTK::subblock(process_noise_cov, &FilterState::bias_adcp) = (2. / (filter_config.water_velocity.adcp_bias_tau * imu_delta_t)) *
-                                        pow(filter_config.water_velocity.adcp_bias_limits,2) * Eigen::Matrix2d::Identity();
-
-    Eigen::Matrix<double, 1, 1> water_density_noise;
-    water_density_noise << (2. / (filter_config.hydrostatics.water_density_tau * imu_delta_t)) * pow(filter_config.hydrostatics.water_density_limits, 2.);
-    MTK::subblock(process_noise_cov, &FilterState::water_density) = water_density_noise;
-
-    pose_filter->setProcessNoiseCovariance(process_noise_cov);
-    
     return true;
 }
 
-void PoseEstimator::registerKnownLandmarks(const VisualLandmarkConfiguration& config, const Eigen::Affine3d& nav_in_nwu)
+void PoseEstimator::registerKnownLandmarks(const VisualLandmarkConfiguration &config, const Eigen::Affine3d &nav_in_nwu)
 {
-    const std::vector<VisualLandmark>& landmarks = config.landmarks;
-    const std::vector<base::Vector3d>& unit_feature_positions = config.unit_feature_positions;
-    for(unsigned i = 0; i < landmarks.size(); i++)
+    const std::vector<VisualLandmark> &landmarks = config.landmarks;
+    const std::vector<base::Vector3d> &unit_feature_positions = config.unit_feature_positions;
+    for (unsigned i = 0; i < landmarks.size(); i++)
     {
         Eigen::Affine3d marker_in_nav(Eigen::AngleAxisd(landmarks[i].marker_euler_orientation.z(), Eigen::Vector3d::UnitZ()) *
                                       Eigen::AngleAxisd(landmarks[i].marker_euler_orientation.y(), Eigen::Vector3d::UnitY()) *
@@ -634,15 +867,73 @@ void PoseEstimator::registerKnownLandmarks(const VisualLandmarkConfiguration& co
         VisualMarker landmark;
         landmark.marker_pose = nav_in_nwu * marker_in_nav;
         landmark.cov_marker_pose = Eigen::Matrix<double, 6, 6>::Zero();
-        landmark.cov_marker_pose.topLeftCorner<3,3>() = nav_in_nwu.rotation() * landmarks[i].marker_pose_std.head<3>().cwiseAbs2().asDiagonal() * nav_in_nwu.rotation().transpose();
-        landmark.cov_marker_pose.bottomRightCorner<3,3>() = nav_in_nwu.rotation() * landmarks[i].marker_pose_std.tail<3>().cwiseAbs2().asDiagonal() * nav_in_nwu.rotation().transpose();
+        landmark.cov_marker_pose.topLeftCorner<3, 3>() = nav_in_nwu.rotation() * landmarks[i].marker_pose_std.head<3>().cwiseAbs2().asDiagonal() * nav_in_nwu.rotation().transpose();
+        landmark.cov_marker_pose.bottomRightCorner<3, 3>() = nav_in_nwu.rotation() * landmarks[i].marker_pose_std.tail<3>().cwiseAbs2().asDiagonal() * nav_in_nwu.rotation().transpose();
         landmark.feature_positions.resize(unit_feature_positions.size());
-        for(unsigned j = 0; j < unit_feature_positions.size(); j++)
+        for (unsigned j = 0; j < unit_feature_positions.size(); j++)
         {
             landmark.feature_positions[j] = unit_feature_positions[j] * landmarks[i].marker_size * 0.5;
         }
         known_landmarks[landmarks[i].marker_id] = landmark;
     }
+}
+
+void PoseEstimator::addStateToBuffer(const base::samples::RigidBodyState &state)
+{
+    state_buffer_.push_back(state);
+}
+
+void PoseEstimator::manageBufferSize()
+{
+    while (!state_buffer_.empty())
+    {
+        auto diff = abs((last_sample_time - state_buffer_.front().time).toMilliseconds());
+        if (diff > state_buffer_duration_)
+        {
+            this->removeStateSampleFromBufferFront();
+        }
+        else
+        {
+            return;
+        }
+    }
+}
+
+void PoseEstimator::removeStateSampleFromBufferFront()
+{
+    state_buffer_.pop_front();
+}
+
+bool PoseEstimator::findBestStateSampleInBuffer(const base::Time &time_sample, base::samples::RigidBodyState &output_state)
+{
+    // TODO: are there any other cases in which to return false ? E.g. delayed sensor measurement is to far in the past ?
+    if (state_buffer_.empty())
+    {
+        return false;
+    }
+    std::cout << time_sample.toString() << " newest state in buffer: " << state_buffer_.back().time.toString() << std::endl;
+
+    unsigned int last_time_diff = 2 * state_buffer_duration_; // ensure that initial time diff is bigger than max time_diff between now and oldest sample, kind of a hack
+    base::samples::RigidBodyState last_sample;
+    // loop through state buffer starting at the last sample. This should be faster given that the delayed sensor measurement arrives alot faster than the state buffer is buffering samples. This will be slower if time difference between sample time and current time > 0.5 * state_buffer_duration
+    for (auto rit = state_buffer_.rbegin(); rit != state_buffer_.rend(); ++rit)
+    {
+        auto sample = *rit;
+        auto diff = abs((time_sample - sample.time).toMilliseconds());
+        if (diff < last_time_diff)
+        {
+            last_time_diff = diff;
+            last_sample = sample;
+        }
+        else
+        {
+            if (last_time_diff > max_time_diff_to_state_)
+                return false;
+            output_state = last_sample;
+            return true;
+        }
+    }
+    return false;
 }
 
 /// The following lines are template definitions for the various state machine
@@ -651,25 +942,24 @@ void PoseEstimator::registerKnownLandmarks(const VisualLandmarkConfiguration& co
 
 bool PoseEstimator::configureHook()
 {
-    if (! PoseEstimatorBase::configureHook())
+    if (!PoseEstimatorBase::configureHook())
         return false;
 
     // get IMU to body transformation
-    if(!_imu2body.get(base::Time(), imu_in_body))
+    if (!_imu2body.get(base::Time(), imu_in_body))
     {
         LOG_ERROR_S << "Failed to get IMU pose in body frame. Note that this has to be a static transformation!";
         return false;
     }
 
     // get navigation in NWU aligned frame
-    if(!_navigation2navigation_nwu.get(base::Time(), nav_in_nwu))
+    if (!_navigation2navigation_nwu.get(base::Time(), nav_in_nwu))
     {
         LOG_ERROR_S << "Failed to get navigation in NWU frame. Note that this has to be a static transformation!";
         return false;
     }
-
     base::Vector3d nav_in_nwu_euler = base::getEuler(base::Orientation(nav_in_nwu.linear()));
-    if(nav_in_nwu_euler.y() != 0. || nav_in_nwu_euler.z() != 0.)
+    if (nav_in_nwu_euler.y() != 0. || nav_in_nwu_euler.z() != 0.)
     {
         LOG_ERROR_S << "The navigation frame can only be rotated with respect to the z axis in the NWU frame!";
         return false;
@@ -680,16 +970,16 @@ bool PoseEstimator::configureHook()
 
     // compute measurement covariances
     double sqrt_delta_t = sqrt(_imu_sensor_samples_period.value());
-    Eigen::Vector3d rotation_rate_std = (1./sqrt_delta_t) * _filter_config.value().rotation_rate.randomwalk;
-    Eigen::Vector3d acceleration_std = (1./sqrt_delta_t) * _filter_config.value().acceleration.randomwalk;
+    Eigen::Vector3d rotation_rate_std = (1. / sqrt_delta_t) * _filter_config.value().rotation_rate.randomwalk;
+    Eigen::Vector3d acceleration_std = (1. / sqrt_delta_t) * _filter_config.value().acceleration.randomwalk;
     cov_angular_velocity = imu_in_body.rotation() * rotation_rate_std.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
     cov_acceleration = imu_in_body.rotation() * acceleration_std.cwiseAbs2().asDiagonal() * imu_in_body.rotation().transpose();
-    cov_body_efforts = (1./_body_efforts_period.value()) * _filter_config.value().model_noise_parameters.body_efforts_std.cwiseAbs2().asDiagonal();
-    cov_body_efforts_unknown = (1./_body_efforts_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
-    cov_body_efforts_unavailable = (1./_imu_sensor_samples_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
-    cov_water_velocity = (1./_water_current_samples_period.value()) * (_filter_config.value().water_velocity.measurement_std.cwiseAbs2()).asDiagonal();
-    cov_visual_feature = (1./_apriltag_features_period.value()) * _filter_config.value().visual_landmarks.feature_std.cwiseAbs2().asDiagonal();
-    var_pressure = (1./_pressure_samples_period.value()) * pow(_filter_config.value().hydrostatics.pressure_std, 2.0);
+    cov_body_efforts = (1. / _body_efforts_period.value()) * _filter_config.value().model_noise_parameters.body_efforts_std.cwiseAbs2().asDiagonal();
+    cov_body_efforts_unknown = (1. / _body_efforts_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
+    cov_body_efforts_unavailable = (1. / _imu_sensor_samples_period.value()) * (_filter_config.value().max_effort.cwiseAbs2()).asDiagonal();
+    cov_water_velocity = (1. / _water_current_samples_period.value()) * (_filter_config.value().water_velocity.measurement_std.cwiseAbs2()).asDiagonal();
+    cov_visual_feature = (1. / _apriltag_features_period.value()) * _filter_config.value().visual_landmarks.feature_std.cwiseAbs2().asDiagonal();
+    var_pressure = (1. / _pressure_samples_period.value()) * pow(_filter_config.value().hydrostatics.pressure_std, 2.0);
 
     dynamic_model_min_depth = _filter_config.value().dynamic_model_min_depth;
 
@@ -702,19 +992,47 @@ bool PoseEstimator::configureHook()
     // register known landmarks
     registerKnownLandmarks(_filter_config.value().visual_landmarks, nav_in_nwu);
 
+    state_buffer_duration_ = _state_buffer_duration.value();
+    // state_buffer_.resize(state_buffer_duration_);
+    max_time_diff_to_state_ = _max_time_diff_to_state.value();
+
+    last_linear_velocity_norm_ = 0.;
+
     return true;
 }
 bool PoseEstimator::startHook()
 {
-    if (! PoseEstimatorBase::startHook())
+    if (!PoseEstimatorBase::startHook())
         return false;
 
+    try {
+        // Open UDP socket
+        socket_.open(boost::asio::ip::udp::v4());
+        socket_.set_option(boost::asio::ip::udp::socket::reuse_address(true));
+        
+        // Enable multicast
+        socket_.set_option(boost::asio::ip::multicast::enable_loopback(true));
+        socket_.set_option(boost::asio::ip::multicast::hops(1));
+
+        // Use multicast address
+        // multicast_endpoint_ = boost::asio::ip::udp::endpoint(
+        // boost::asio::ip::address::from_string("239.255.0.1"), 4949);
+
+        multicast_endpoint_ = boost::asio::ip::udp::endpoint(
+            boost::asio::ip::address::from_string("192.168.1.72"), 4949);
+        
+    }
+    catch (const std::exception& e) {
+        LOG_ERROR_S << "Failed to open UDP socket: " << e.what();
+        return false;
+    }
+        
     // initialize filter
-    if(!initializeFilter(_initial_state.value(), _filter_config.value(), _model_parameters.value(), imu_in_body, nav_in_nwu))
+    if (!initializeFilter(_initial_state.value(), _filter_config.value(), _model_parameters.value(), imu_in_body, nav_in_nwu))
         return false;
 
     // set process noise
-    if(!setProcessNoise(_filter_config.value(), _imu_sensor_samples_period.value(), imu_in_body))
+    if (!setProcessNoise(_filter_config.value(), _imu_sensor_samples_period.value(), imu_in_body))
         return false;
 
     pose_filter->setMaxTimeDelta(_max_time_delta.get());
@@ -744,13 +1062,13 @@ void PoseEstimator::updateHook()
 
     // check stream alignment status
     verifier->verifyStreamAlignerStatus(_transformer.getStreamAlignerStatus(), streams_with_alignment_failures, streams_with_critical_alignment_failures);
-    if(streams_with_alignment_failures > 0)
+    if (streams_with_alignment_failures > 0)
         new_state = TRANSFORMATION_ALIGNMENT_FAILURES;
-    if(streams_with_critical_alignment_failures > 0)
+    if (streams_with_critical_alignment_failures > 0)
         exception(CRITICAL_ALIGNMENT_FAILURE);
 
     // write task state if it has changed
-    if(last_state != new_state)
+    if (last_state != new_state)
     {
         last_state = new_state;
         state(new_state);
