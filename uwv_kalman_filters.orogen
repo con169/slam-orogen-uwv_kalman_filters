@@ -205,7 +205,7 @@ task_context "PoseEstimator" do
         transformation("dvl", "body")
         transformation("pressure_sensor", "body")
         transformation("gps", "body")
-        transformation("apriltag", "camera")
+        #transformation("apriltag", "camera")
         transformation("camera", "body")
         transformation("usbl_modem", "body")
         transformation("usbl_base", "navigation")

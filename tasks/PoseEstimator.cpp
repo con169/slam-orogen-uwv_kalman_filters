@@ -521,6 +521,7 @@ void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time &ts, c
 
 void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const apriltags::MarkerPosesStamped &marker_poses_stamped_samples)
 {
+    //con: 8/29/25
     bool has_valid_poses = false;
     for (const auto& pose : marker_poses_stamped_samples.marker_poses)
     {
@@ -530,10 +531,10 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
             break;
         }
     }
-
     if (!has_valid_poses) {
         return;
     }
+
     // receive camera to body transformation
     Eigen::Affine3d cameraInBody;
     if (!_camera2body.get(ts, cameraInBody))
@@ -543,6 +544,8 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
         return;
     }
 
+    //Process marker poses
+    bool initialized = false;
     Eigen::Affine3d imu_in_nwu_final;
     for (size_t i = 0; i < marker_poses_stamped_samples.marker_poses.size(); i++)
     {
@@ -569,6 +572,7 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
         }
         if (marker_poses_stamped_samples.marker_poses[i].position[2] > 2.)
             continue; // temporary
+
         Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
         Eigen::Affine3d markerInImu = cameraInIMU * marker_poses_stamped_samples.marker_poses[i].getTransform();
 
@@ -577,9 +581,10 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
         std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
 
         // TODO: Average pose estimate based on marker pose reading
-        if (i == 0)
+        if (!initialized)
         {
             imu_in_nwu_final = ImuInNWU_measurement;
+            initialized = true;
         }
         else
         {
@@ -593,6 +598,8 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
     }
     std::cout << "Final t: " << imu_in_nwu_final.translation() << std::endl;
     std::cout << "Final r: " << imu_in_nwu_final.rotation() << std::endl;
+    if (!initialized)
+        return;
     try {
         // Create measurement using filter's existing types
         PoseUKF::XY_Position xy_measurement;
