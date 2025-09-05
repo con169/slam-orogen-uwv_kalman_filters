@@ -69,7 +69,7 @@ void PoseEstimator::dvl_velocity_samplesTransformerCallback(const base::Time &ts
     }
     // con: 9/2/2025
     //std::cout << dvl_velocity_samples_sample.printRBSHeaders();
-    std::cout << "dvl_velocity_samples_sample: " << dvl_velocity_samples_sample << std::endl; 
+    //std::cout << "dvl_velocity_samples_sample: " << std::endl << dvl_velocity_samples_sample << std::endl; 
     try {
         std::stringstream ss;
         ss << dvl_velocity_samples_sample;  
@@ -508,33 +508,20 @@ void PoseEstimator::apriltag_featuresTransformerCallback(const base::Time &ts, c
 
         try
         {
+            std::cout << "apriltag features integrate measurement" << std::endl;
             pose_filter->integrateMeasurement(measurements, landmark->second.feature_positions,
-                                            landmark->second.marker_pose, landmark->second.cov_marker_pose,
-                                            camera_config, cameraInIMU);
+                                              landmark->second.marker_pose, landmark->second.cov_marker_pose,
+                                              camera_config, cameraInIMU);
         }
         catch (const std::runtime_error &e)
         {
             LOG_ERROR_S << "Failed to integrate visual measurement: " << e.what();
         }
-    } 
+    }
 }
 
 void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const apriltags::MarkerPosesStamped &marker_poses_stamped_samples)
 {
-    //con: 8/29/25
-    bool has_valid_poses = false;
-    for (const auto& pose : marker_poses_stamped_samples.marker_poses)
-    {
-        if (pose.hasValidPosition() && pose.hasValidOrientation())
-        {
-            has_valid_poses = true;
-            break;
-        }
-    }
-    if (!has_valid_poses) {
-        return;
-    }
-
     // receive camera to body transformation
     Eigen::Affine3d cameraInBody;
     if (!_camera2body.get(ts, cameraInBody))
@@ -544,8 +531,6 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
         return;
     }
 
-    //Process marker poses
-    bool initialized = false;
     Eigen::Affine3d imu_in_nwu_final;
     for (size_t i = 0; i < marker_poses_stamped_samples.marker_poses.size(); i++)
     {
@@ -572,19 +557,17 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
         }
         if (marker_poses_stamped_samples.marker_poses[i].position[2] > 2.)
             continue; // temporary
-
         Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
         Eigen::Affine3d markerInImu = cameraInIMU * marker_poses_stamped_samples.marker_poses[i].getTransform();
 
         Eigen::Affine3d ImuInNWU_measurement = landmark->second.marker_pose * markerInImu.inverse(); // landmark->second.marker_pose * marker_pose.getTransform().inverse() * cameraInBody.inverse() * imu_in_body;
 
-        std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
+        // std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
 
         // TODO: Average pose estimate based on marker pose reading
-        if (!initialized)
+        if (i == 0)
         {
             imu_in_nwu_final = ImuInNWU_measurement;
-            initialized = true;
         }
         else
         {
@@ -598,25 +581,120 @@ void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base
     }
     std::cout << "Final t: " << imu_in_nwu_final.translation() << std::endl;
     std::cout << "Final r: " << imu_in_nwu_final.rotation() << std::endl;
-    if (!initialized)
-        return;
-    try {
-        // Create measurement using filter's existing types
-        PoseUKF::XY_Position xy_measurement;
-        xy_measurement.mu = imu_in_nwu_final.translation().head<2>();
-        xy_measurement.cov = Eigen::Matrix2d::Identity() * 0.1;
-
-        // Integrate position measurement
-        pose_filter->integrateMeasurement(xy_measurement);
-    }
-    catch (const std::runtime_error &e)
-    {
-        LOG_ERROR_S << "Failed to integrate marker pose measurement: " << e.what();
-    }
     // Reset Pose Filter based on marker measurement
     // TODO: This whole resetting thingy should be handled either by internal ukf or by something like a RLS Filter as described in https://www.researchgate.net/publication/330591847_Long-Duration_Autonomy_for_Small_Rotorcraft_UAS_Including_Recharging
-    //pose_filter->resetFilterWithExternalPose(imu_in_nwu_final);
+    pose_filter->resetFilterWithExternalPose(imu_in_nwu_final);
 }
+// void PoseEstimator::apriltags_marker_poses_stampedTransformerCallback(const base::Time &ts, const apriltags::MarkerPosesStamped &marker_poses_stamped_samples)
+// {
+//     //con: 8/29/25
+//     bool has_valid_poses = false;
+//     for (const auto& pose : marker_poses_stamped_samples.marker_poses)
+//     {
+//         if (pose.hasValidPosition() && pose.hasValidOrientation())
+//         {
+//             has_valid_poses = true;
+//             break;
+//         }
+//     }
+//     if (!has_valid_poses) {
+//         return;
+//     }
+
+//     // receive camera to body transformation
+//     Eigen::Affine3d cameraInBody;
+//     if (!_camera2body.get(ts, cameraInBody))
+//     {
+//         LOG_ERROR_S << "skip, couldn't receive a valid camera-in-body transformation sample!";
+//         new_state = MISSING_TRANSFORMATION;
+//         return;
+//     }
+
+//     //Process marker poses
+//     bool initialized = false;
+//     Eigen::Affine3d imu_in_nwu_final;
+//     for (size_t i = 0; i < marker_poses_stamped_samples.marker_poses.size(); i++)
+//     {
+//         // TODO check if sourceFrame is correct to receive the tag id
+//         std::string erase = "_frame";
+//         std::string marker_id = marker_poses_stamped_samples.marker_poses[i].sourceFrame;
+//         marker_id = marker_id.erase(marker_id.find(erase), erase.length());
+//         // PoseUKF::State current_state;
+//         // if (pose_filter->getCurrentState(current_state))
+//         // {
+//         //     Eigen::Affine3d marker_in_body = cameraInBody * marker_pose.getTransform();
+//         //     base::samples::RigidBodyState rbs_body_in_nav;
+//         //     rbs_body_in_nav.position = nwu_in_nav * (Eigen::Vector3d(current_state.position) - current_state.orientation * imu_in_body.translation());
+//         //     rbs_body_in_nav.orientation = nwu_in_nav.rotation() * current_state.orientation;
+//         //     Eigen::Affine3d marker_in_nav_print = rbs_body_in_nav.getTransform() * marker_in_body;
+//         //     std::cout << "Marker: " << marker_id << " Position: " << marker_in_nav_print.translation() << " Orientation: " << marker_in_nav_print.rotation() << std::endl;
+//         // }
+
+//         std::map<std::string, VisualMarker>::const_iterator landmark = known_landmarks.find(marker_id);
+//         if (landmark == known_landmarks.end())
+//         {
+//             std::cout << "Marker with ID " << marker_id << " is unknown. Measurements will be skipped." << std::endl;
+//             continue;
+//         }
+//         if (marker_poses_stamped_samples.marker_poses[i].position[2] > 2.)
+//             continue; // temporary
+
+//         Eigen::Affine3d cameraInIMU = imu_in_body.inverse() * cameraInBody;
+//         Eigen::Affine3d markerInImu = cameraInIMU * marker_poses_stamped_samples.marker_poses[i].getTransform();
+
+//         Eigen::Affine3d ImuInNWU_measurement = landmark->second.marker_pose * markerInImu.inverse(); // landmark->second.marker_pose * marker_pose.getTransform().inverse() * cameraInBody.inverse() * imu_in_body;
+
+//         std::cout << "Body In Nav: " << ((nav_in_nwu.inverse() * ImuInNWU_measurement) * imu_in_body.inverse()).translation() << std::endl;
+
+//         // TODO: Average pose estimate based on marker pose reading
+//         if (!initialized)
+//         {
+//             imu_in_nwu_final = ImuInNWU_measurement;
+//             initialized = true;
+//         }
+//         else
+//         {
+//             std::cout << "Before Averaging: " << imu_in_nwu_final.translation() << std::endl;
+//             imu_in_nwu_final.translation() = (imu_in_nwu_final.translation() + ImuInNWU_measurement.translation()) / 2;
+//             std::cout << "After Averaging: " << imu_in_nwu_final.translation() << std::endl;
+//             Eigen::Quaterniond q_1(imu_in_nwu_final.rotation());
+//             Eigen::Quaterniond q_2(ImuInNWU_measurement.rotation());
+//             imu_in_nwu_final.linear() = q_1.slerp(0.5, q_2).toRotationMatrix();
+//         }
+//     }
+//     //std::cout << "Final t: " << imu_in_nwu_final.translation() << std::endl;
+//     //std::cout << "Final r: " << imu_in_nwu_final.rotation() << std::endl;
+//     if (!initialized)
+//         return;
+//     try {
+//         // Create measurement using filter's existing types
+//         PoseUKF::XY_Position xy_measurement;
+//         xy_measurement.mu = imu_in_nwu_final.translation().head<2>();
+
+//         int valid_marker_count = 0;
+//         for (const auto& pose : marker_poses_stamped_samples.marker_poses)
+//         {
+//             if (pose.hasValidPosition() && pose.hasValidOrientation())
+//                 valid_marker_count++;
+//         }
+//         if (valid_marker_count > 0)
+//         {
+//              xy_measurement.cov = Eigen::Matrix2d::Identity() * 0.1;
+//         }
+//         else
+//             xy_measurement.cov = Eigen::Matrix2d::Identity() * 10.0;
+
+//         // Integrate position measurement
+//         pose_filter->integrateMeasurement(xy_measurement);
+//     }
+//     catch (const std::runtime_error &e)
+//     {
+//         LOG_ERROR_S << "Failed to integrate marker pose measurement: " << e.what();
+//     }
+//     // Reset Pose Filter based on marker measurement
+//     // TODO: This whole resetting thingy should be handled either by internal ukf or by something like a RLS Filter as described in https://www.researchgate.net/publication/330591847_Long-Duration_Autonomy_for_Small_Rotorcraft_UAS_Including_Recharging
+//     //pose_filter->resetFilterWithExternalPose(imu_in_nwu_final);
+// }
 
 // void PoseEstimator::integrateDelayedPositionSamples(const base::Time &ts)
 // {
@@ -1013,7 +1091,7 @@ bool PoseEstimator::startHook()
         return false;
 
     try {
-        // Open UDP socket
+        //con: Open UDP socket
         socket_.open(boost::asio::ip::udp::v4());
         socket_.set_option(boost::asio::ip::udp::socket::reuse_address(true));
         
@@ -1025,9 +1103,10 @@ bool PoseEstimator::startHook()
         // multicast_endpoint_ = boost::asio::ip::udp::endpoint(
         // boost::asio::ip::address::from_string("239.255.0.1"), 4949);
 
+        //udp address
         multicast_endpoint_ = boost::asio::ip::udp::endpoint(
-            boost::asio::ip::address::from_string("192.168.1.72"), 4949);
-        
+            boost::asio::ip::address::from_string("192.168.1.68"), 4949);
+        //192.168.1.72
     }
     catch (const std::exception& e) {
         LOG_ERROR_S << "Failed to open UDP socket: " << e.what();
