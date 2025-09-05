@@ -225,7 +225,7 @@ task_context "PoseEstimator" do
         align_port("water_current_samples", 0.25)
         align_port("ground_distance_samples", 0.25)
         align_port("apriltag_features", 0.1)
-        align_port("apriltags_marker_poses_stamped", 0.1)
+        #align_port("apriltags_marker_poses_stamped", 0.1)
         
         max_latency(0.2)
     end
